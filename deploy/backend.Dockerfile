@@ -2,7 +2,9 @@ FROM python:3.11-slim-bookworm AS build
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends gcc \
     && rm -rf /var/lib/apt/lists/*
-# 达梦客户端库由 scripts/fetch-dm-drivers.py 在构建前准备；没有时跳过，不影响其他数据库。
+# 达梦客户端库由 scripts/fetch-dm-drivers.py 在构建前准备。
+# 不接达梦时，deploy/drivers/dm/<arch>/ 下只需保留空目录占位（bin/.gitkeep），
+# 否则 COPY 源不存在构建会直接失败；占位文件不影响其他数据库。
 COPY deploy/drivers/dm/${TARGETARCH}/ /opt/dmdbms/
 ENV DM_HOME=/opt/dmdbms LD_LIBRARY_PATH=/opt/dmdbms/bin
 COPY backend/requirements.txt .

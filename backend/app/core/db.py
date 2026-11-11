@@ -33,23 +33,57 @@ def _engine():
     return create_engine(url, pool_size=10, max_overflow=10, pool_pre_ping=True)
 
 
-class _LazyEngine:
-    """首次使用时才建引擎，使测试能在导入后改写数据库地址。"""
+_cached_engine = None
 
-    def __init__(self):
-        self._real = None
 
-    def _get(self):
-        if self._real is None:
-            self._real = _engine()
-        return self._real
+def _engine_cached():
+    """首次使用时才建引擎，使测试能在导入后改写数据库地址。返回真正的 Engine 对象。"""
+    global _cached_engine
+    if _cached_engine is None:
+        _cached_engine = _engine()
+    return _cached_engine
+
+
+class _EngineAccessor:
+    """供测试使用的 engine 入口：其余属性转发到真正的 Engine。
+
+    测试在每个用例前执行 ``db_module.engine._real = None`` 来丢弃旧引擎，
+    再用 ``Base.metadata.create_all(db_module.engine)`` 建表；这两个操作
+    都走这里。应用代码本身不再把这个代理对象当作 Session 的 bind
+    （那会触发每条语句换连接的问题），只通过 _LazySession.get_bind 取真引擎。
+    """
+
+    @property
+    def _real(self):
+        return _cached_engine
+
+    @_real.setter
+    def _real(self, value):
+        global _cached_engine
+        if value is None:
+            _cached_engine = None
 
     def __getattr__(self, name):
-        return getattr(self._get(), name)
+        return getattr(_engine_cached(), name)
 
 
-engine = _LazyEngine()
-SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+engine = _EngineAccessor()
+
+
+class _LazySession(Session):
+    """把引擎创建推迟到首次使用，但交给 SQLAlchemy 的必须是真正的 Engine。
+
+    原先的 _LazyEngine 代理对象不是 Engine 实例，Session 在同一个事务里
+    会对每条语句各取一个新连接：flush 后再读看不到刚写入的行，建模板时
+    template_versions 的外键因此报 templates.id 不存在（真实 PG 上复现，
+    SQLite + StaticPool 因共用同一连接而掩盖了这个问题）。
+    """
+
+    def get_bind(self, mapper=None, clause=None, **kw):
+        return _engine_cached()
+
+
+SessionLocal = sessionmaker(class_=_LazySession, expire_on_commit=False)
 
 
 def get_session() -> Iterator[Session]:

@@ -203,7 +203,8 @@ def claim(db: Session, worker_id: str) -> ImportTask | None:
 
     表锁主键冲突说明目标表正被写，跳过该任务继续找下一条。
     """
-    dialect = db.bind.dialect.name if db.bind is not None else ""
+    bind = db.get_bind()  # 会话不再直接持有 bind（见 core/db.py 的 _LazySession）
+    dialect = bind.dialect.name if bind is not None else ""
     locking = " FOR UPDATE SKIP LOCKED" if dialect in {"postgresql", "mysql"} else ""
     queued = db.execute(
         text(f"SELECT id FROM imports WHERE status = :status ORDER BY created_at{locking}"),

@@ -1,0 +1,46 @@
+services:
+  web:
+    image: ${EI_REGISTRY:-easyimporter}/easyimporter-web:${EI_VERSION:-latest}
+    ports: ["80:80"]
+    depends_on: [api]
+    restart: unless-stopped
+
+  api:
+    image: ${EI_REGISTRY:-easyimporter}/easyimporter-backend:${EI_VERSION:-latest}
+    # 先迁移再启动；迁移在 migrations/env.py 里持数据库锁，多副本同时启动也安全。
+    command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips 172.16.0.0/12"]
+    env_file: .env
+    volumes: ["uploads:/data/uploads"]
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/health"]
+      interval: 15s
+    restart: unless-stopped
+
+  worker:
+    image: ${EI_REGISTRY:-easyimporter}/easyimporter-backend:${EI_VERSION:-latest}
+    command: ["python", "-m", "app.worker"]
+    env_file: .env
+    volumes: ["uploads:/data/uploads"]
+    stop_grace_period: 5m
+    # worker 不跑迁移，等 api 健康（迁移已完成）后再启动。
+    depends_on:
+      api: { condition: service_healthy }
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ei
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: easyimporter
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ei -d easyimporter"]
+      interval: 10s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  uploads:

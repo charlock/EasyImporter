@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+node_modules/
+dist/
+
+.env
+deploy/drivers/dm/**/*.so
+deploy/certs/
+
+*.db
+.DS_Store

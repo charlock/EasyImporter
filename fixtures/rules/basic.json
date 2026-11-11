@@ -1,0 +1,32 @@
+{
+  "columns": [
+    {"name": "sales_amount", "type": "DECIMAL(18,2)", "comment": "销售额", "nullable": true, "default": null, "is_primary_key": false},
+    {"name": "company", "type": "VARCHAR(32)", "comment": "公司", "nullable": false, "default": null, "is_primary_key": false},
+    {"name": "signed", "type": "BOOLEAN", "comment": "是否签收", "nullable": true, "default": null, "is_primary_key": false},
+    {"name": "biz_date", "type": "DATE", "comment": "业务日期", "nullable": true, "default": null, "is_primary_key": false}
+  ],
+  "overrides": [
+    {"db_column": "sales_amount", "default": "0.00"},
+    {"db_column": "company", "enum": ["A公司", "B公司"]}
+  ],
+  "cases": [
+    {
+      "row_no": 2,
+      "row": {"sales_amount": "1,234.5", "company": "A公司", "signed": "是", "biz_date": "2026-01-03"},
+      "expected_errors": [],
+      "expected_values": {"sales_amount": "1234.50", "company": "A公司", "signed": true, "biz_date": "2026-01-03"}
+    },
+    {
+      "row_no": 3,
+      "row": {"sales_amount": "", "company": "C公司", "signed": "maybe", "biz_date": "2026/1/3"},
+      "expected_errors": ["ENUM_MISMATCH", "TYPE_MISMATCH"],
+      "expected_values": {"sales_amount": "0.00", "biz_date": "2026-01-03"}
+    },
+    {
+      "row_no": 4,
+      "row": {"sales_amount": "abc", "company": "", "signed": "0", "biz_date": 46031},
+      "expected_errors": ["TYPE_MISMATCH", "REQUIRED"],
+      "expected_values": {"signed": false}
+    }
+  ]
+}

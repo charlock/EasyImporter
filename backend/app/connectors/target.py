@@ -89,6 +89,18 @@ class TargetDatabase:
                 "ON m.OWNER = c.OWNER AND m.TABLE_NAME = c.TABLE_NAME AND m.COLUMN_NAME = c.COLUMN_NAME "
                 "WHERE c.OWNER = :schema AND c.TABLE_NAME = :table ORDER BY c.COLUMN_ID"
             )
+        elif self.dialect == POSTGRES and conn.dialect.name == "postgresql":
+            # 真实 PG：用 pg_catalog.col_description 读列注释。information_schema
+            # 里没有注释字段，之前这里取字面量 ''，导致自动匹配在 PG 上丢掉
+            # “注释 90 分”这一档。SQLite 替身（测试用）走下面的旧分支。
+            sql = text(
+                "SELECT column_name, data_type, character_maximum_length, numeric_precision, "
+                "numeric_scale, is_nullable, column_default, "
+                "pg_catalog.col_description(format('%I.%I', table_schema, table_name)::regclass, "
+                "ordinal_position) "
+                "FROM information_schema.columns "
+                "WHERE table_schema = :schema AND table_name = :table ORDER BY ordinal_position"
+            )
         else:
             sql = text(
                 "SELECT column_name, data_type, character_maximum_length, numeric_precision, "

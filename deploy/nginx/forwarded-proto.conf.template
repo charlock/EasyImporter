@@ -1,0 +1,7 @@
+# X-Forwarded-Proto 透传：Medusa Nginx 回源时已是 https，若直接用 $scheme
+# 会被本层 nginx 改写成 http，导致后端误判协议。map 在 http 层定义，
+# 有上游头时透传，没有时回退到本层 $scheme。
+map $http_x_forwarded_proto $forwarded_proto {
+    ""      $scheme;
+    default $http_x_forwarded_proto;
+}

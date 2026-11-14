@@ -10,7 +10,9 @@ server {
         proxy_pass http://api:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        # $forwarded_proto 由 forwarded-proto.conf.template 的 map 定义：
+        # 有上游（Medusa Nginx）传来的 X-Forwarded-Proto 时透传，否则用本层 $scheme。
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
     }
 
     # SPA 回退。

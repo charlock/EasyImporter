@@ -1,12 +1,18 @@
 services:
   web:
     image: ${EI_REGISTRY:-easyimporter}/easyimporter-web:${EI_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
     ports: ["80:80"]
     depends_on: [api]
     restart: unless-stopped
 
   api:
     image: ${EI_REGISTRY:-easyimporter}/easyimporter-backend:${EI_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: deploy/backend.Dockerfile
     # 先迁移再启动；迁移在 migrations/env.py 里持数据库锁，多副本同时启动也安全。
     command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips 172.16.0.0/12"]
     env_file: .env
@@ -20,6 +26,9 @@ services:
 
   worker:
     image: ${EI_REGISTRY:-easyimporter}/easyimporter-backend:${EI_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: deploy/backend.Dockerfile
     command: ["python", "-m", "app.worker"]
     env_file: .env
     volumes: ["uploads:/data/uploads"]

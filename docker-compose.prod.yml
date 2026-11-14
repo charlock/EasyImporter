@@ -1,0 +1,45 @@
+# EasyImporter 生产覆盖（VPS：/data/EasyImporter）
+# 用法：docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# 关键点：
+# - web 不占 80/443（已被 Medusa Nginx 占用），只绑本机 127.0.0.1:8080 供调试；
+#   对外流量走 Medusa Nginx（/data/medusa/nginx/default.conf.template 里
+#   easy-importer.satank.cn 的 server 块），经共享网络直连 web 容器。
+# - web 加入 Medusa 的外部网络 medusa_medusa_network，容器名固定为
+#   easyimporter-web，供 Medusa Nginx 的 proxy_pass 解析。
+# - db/api/worker 不映射宿主机端口，只在内网通信。
+# - 基础镜像：nginx:1.30-alpine、node:22.23.3-alpine、postgres:16-alpine
+#  （见 deploy/web.Dockerfile 与 docker-compose.yml 的 db 服务）。
+
+name: easyimporter
+
+services:
+  web:
+    container_name: easyimporter-web
+    # 注意：compose 合并 ports 时默认是追加而非替换，base 文件里的 "80:80"
+    # 会和这里的映射并存，导致 80 端口与 Medusa Nginx 冲突而起不来。
+    # !override 强制用这里的映射替换 base 的端口映射（Compose 2.24+ 支持）。
+    ports: !override
+      - "127.0.0.1:8080:80"
+    networks:
+      - default
+      - medusa
+
+  api:
+    container_name: easyimporter-api
+    networks:
+      - default
+
+  worker:
+    container_name: easyimporter-worker
+    networks:
+      - default
+
+  db:
+    container_name: easyimporter-db
+    networks:
+      - default
+
+networks:
+  medusa:
+    external: true
+    name: medusa_medusa_network

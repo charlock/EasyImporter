@@ -6,6 +6,27 @@ import { useRouter } from "vue-router";
 
 import { api } from "@/api/client";
 import EmptyState from "@/components/EmptyState.vue";
+import PageHeader from "@/components/PageHeader.vue";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { gzipJsonl } from "@/features/excel/gzip";
 import { parseInWorker } from "@/features/excel/parse";
 import { pathLabel } from "@/features/header/tree";
@@ -35,6 +56,15 @@ const error = ref("");
 const hiddenRows = ref(0);
 const editing = ref<{ index: number; key: string } | null>(null);
 const scroller = ref<HTMLElement | null>(null);
+const scopeConfirm = ref<{ estimated: number; scopes: number; resolve: (ok: boolean) => void } | null>(null);
+
+// shadcn Select 只认字符串，模板 id 在此做 string ⇄ number 转换。
+const templateIdStr = computed({
+  get: () => (templateId.value == null ? "" : String(templateId.value)),
+  set: (value: string) => {
+    templateId.value = value === "" ? null : Number(value);
+  },
+});
 
 const columns = computed<GridColumn[]>(() => {
   const mapping = template.value?.mapping;
@@ -173,6 +203,17 @@ function commitEdit(event: Event): void {
   revalidate();
 }
 
+function askScope(estimated: number, scopes: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    scopeConfirm.value = { estimated, scopes, resolve };
+  });
+}
+
+function closeScope(ok: boolean): void {
+  scopeConfirm.value?.resolve(ok);
+  scopeConfirm.value = null;
+}
+
 /** REPLACE_SCOPE 先问后端将删除多少行，让用户知道代价再确认。 */
 async function confirmScope(current: Template): Promise<boolean> {
   const unique = new Map<string, Record<string, unknown>>();
@@ -184,7 +225,7 @@ async function confirmScope(current: Template): Promise<boolean> {
     `/workspaces/${props.workspaceId}/imports/preview-scope`,
     { template_id: current.id, template_version: current.current_version, scopes: [...unique.values()] },
   );
-  return window.confirm(t("import.confirmScope", { n: preview.estimated_delete, scopes: preview.scope_count }));
+  return askScope(preview.estimated_delete, preview.scope_count);
 }
 
 async function submit(): Promise<void> {
@@ -214,89 +255,123 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div class="stack">
-    <div class="page-head">
-      <h1>{{ t("import.title") }}</h1>
-      <RouterLink to="/imports">{{ t("import.history") }}</RouterLink>
-    </div>
+  <div class="space-y-6">
+    <PageHeader :title="t('import.title')">
+      <template #actions>
+        <Button variant="outline" as-child>
+          <RouterLink to="/imports">{{ t("import.history") }}</RouterLink>
+        </Button>
+      </template>
+    </PageHeader>
 
-    <div class="card stack">
-      <label class="field">
-        <span>{{ t("import.pickTemplate") }}</span>
-        <select v-model="templateId">
-          <option v-for="item in templates" :key="item.id" :value="item.id">{{ item.name }}</option>
-        </select>
-      </label>
+    <Card>
+      <CardContent class="space-y-4 pt-6">
+        <div class="max-w-sm">
+          <Select v-model="templateIdStr">
+            <SelectTrigger>
+              <SelectValue :placeholder="t('import.pickTemplate')" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="item in templates" :key="item.id" :value="String(item.id)">
+                {{ item.name }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
-      <label v-if="template" class="drop">
-        <input type="file" accept=".xlsx" :disabled="parsing" @change="onFile" />
-        <span>{{ parsing ? t("import.parsing") : t("import.drop") }}</span>
-      </label>
-      <p v-if="hiddenRows" class="muted">{{ t("import.hiddenRows", { n: hiddenRows }) }}</p>
-      <p v-if="error" class="error">{{ error }}</p>
-    </div>
+        <label
+          v-if="template"
+          class="grid cursor-pointer place-items-center rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground hover:border-muted-foreground"
+        >
+          <input type="file" accept=".xlsx" class="hidden" :disabled="parsing" @change="onFile" />
+          <span>{{ parsing ? t("import.parsing") : t("import.drop") }}</span>
+        </label>
+        <p v-if="hiddenRows" class="text-sm text-muted-foreground">
+          {{ t("import.hiddenRows", { n: hiddenRows }) }}
+        </p>
+        <Alert v-if="error" variant="destructive">
+          <AlertDescription>{{ error }}</AlertDescription>
+        </Alert>
+      </CardContent>
+    </Card>
 
     <EmptyState v-if="!rows.length" :title="t('common.empty')" />
-    <div v-else class="card">
-      <div class="row" style="justify-content: space-between">
-        <span>
-          {{ mapped.length }} {{ t("import.rows") }} · {{ problems }} {{ t("import.errors") }}
-          <span class="muted">· {{ t("import.editHint") }}</span>
-        </span>
-        <button :disabled="!canSubmit" @click="submit">{{ t("import.submit") }}</button>
-      </div>
-      <div ref="scroller" class="grid-wrap">
-        <table class="data">
-          <thead>
-            <tr>
-              <th>{{ t("grid.rowNo") }}</th>
-              <th v-for="column in columns" :key="column.key">{{ column.label }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="padTop" :style="{ height: `${padTop}px` }"><td :colspan="columns.length + 1" /></tr>
-            <tr v-for="item in virtualRows" :key="item.index" :style="{ height: `${ROW_HEIGHT}px` }">
-              <td>{{ rows[item.index].rowNo }}</td>
-              <td
-                v-for="column in columns"
-                :key="column.key"
-                :data-error="!!rows[item.index].cells[column.key]?.error"
-                :title="rows[item.index].cells[column.key]?.error
-                  ? codeText(rows[item.index].cells[column.key]!.error!.code) : undefined"
-                @dblclick="startEdit(item.index, column.key)"
+    <Card v-else>
+      <CardContent class="pt-6">
+        <div class="mb-4 flex items-center justify-between">
+          <span class="text-sm">
+            {{ mapped.length }} {{ t("import.rows") }} · {{ problems }} {{ t("import.errors") }}
+            <span class="text-muted-foreground">· {{ t("import.editHint") }}</span>
+          </span>
+          <Button :disabled="!canSubmit" @click="submit">{{ t("import.submit") }}</Button>
+        </div>
+        <div ref="scroller" class="max-h-[60vh] overflow-auto">
+          <table class="w-full caption-bottom text-sm">
+            <thead>
+              <tr class="border-b">
+                <th class="sticky top-0 z-10 h-9 bg-background px-2 text-left align-middle font-medium text-muted-foreground">{{ t("grid.rowNo") }}</th>
+                <th
+                  v-for="column in columns"
+                  :key="column.key"
+                  class="sticky top-0 z-10 h-9 bg-background px-2 text-left align-middle font-medium text-muted-foreground"
+                >
+                  {{ column.label }}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="padTop" :style="{ height: `${padTop}px` }"><td :colspan="columns.length + 1" /></tr>
+              <tr
+                v-for="item in virtualRows"
+                :key="item.index"
+                :style="{ height: `${ROW_HEIGHT}px` }"
+                class="border-b"
               >
-                <input
-                  v-if="editing?.index === item.index && editing.key === column.key"
-                  class="cell-edit"
-                  :value="rows[item.index].cells[column.key]?.value"
-                  @blur="commitEdit"
-                  @keydown.enter="($event.target as HTMLInputElement).blur()"
-                  @keydown.esc="editing = null"
-                />
-                <span
-                  v-else-if="rows[item.index].cells[column.key]?.defaultApplied"
-                  class="muted"
-                >{{ t("grid.defaultHint", { value: rows[item.index].cells[column.key]!.defaultApplied!.value }) }}</span>
-                <template v-else>{{ rows[item.index].cells[column.key]?.value }}</template>
-              </td>
-            </tr>
-            <tr v-if="padBottom" :style="{ height: `${padBottom}px` }"><td :colspan="columns.length + 1" /></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+                <td class="px-2 py-1 align-middle">{{ rows[item.index].rowNo }}</td>
+                <td
+                  v-for="column in columns"
+                  :key="column.key"
+                  class="whitespace-nowrap px-2 py-1 align-middle"
+                  :class="rows[item.index].cells[column.key]?.error ? 'bg-destructive/15' : ''"
+                  :title="rows[item.index].cells[column.key]?.error
+                    ? codeText(rows[item.index].cells[column.key]!.error!.code) : undefined"
+                  @dblclick="startEdit(item.index, column.key)"
+                >
+                  <input
+                    v-if="editing?.index === item.index && editing.key === column.key"
+                    class="cell-edit w-full min-w-20 rounded-md border border-input bg-background px-1 py-0.5 text-sm"
+                    :value="rows[item.index].cells[column.key]?.value"
+                    @blur="commitEdit"
+                    @keydown.enter="($event.target as HTMLInputElement).blur()"
+                    @keydown.esc="editing = null"
+                  />
+                  <span
+                    v-else-if="rows[item.index].cells[column.key]?.defaultApplied"
+                    class="text-muted-foreground"
+                  >{{ t("grid.defaultHint", { value: rows[item.index].cells[column.key]!.defaultApplied!.value }) }}</span>
+                  <template v-else>{{ rows[item.index].cells[column.key]?.value }}</template>
+                </td>
+              </tr>
+              <tr v-if="padBottom" :style="{ height: `${padBottom}px` }"><td :colspan="columns.length + 1" /></tr>
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+
+    <AlertDialog :open="scopeConfirm !== null" @update:open="(open) => { if (!open) closeScope(false); }">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{{ t("import.confirmScopeTitle") }}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {{ t("import.confirmScope", { n: scopeConfirm?.estimated ?? 0, scopes: scopeConfirm?.scopes ?? 0 }) }}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{{ t("common.cancel") }}</AlertDialogCancel>
+          <AlertDialogAction @click="closeScope(true)">{{ t("common.confirm") }}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>
-
-<style scoped>
-.drop {
-  display: grid; place-items: center; padding: 32px; border: 1px dashed var(--line);
-  border-radius: var(--radius); cursor: pointer; color: var(--muted);
-}
-.drop input { display: none; }
-.grid-wrap { overflow: auto; max-height: 60vh; margin-top: 12px; }
-.grid-wrap thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
-.grid-wrap td { white-space: nowrap; }
-td[data-error="true"] { background: color-mix(in srgb, var(--danger) 16%, transparent); }
-.cell-edit { width: 100%; min-width: 80px; padding: 2px 4px; }
-</style>

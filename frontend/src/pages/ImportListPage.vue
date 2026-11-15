@@ -4,7 +4,25 @@ import { useI18n } from "vue-i18n";
 
 import { api } from "@/api/client";
 import EmptyState from "@/components/EmptyState.vue";
+import PageHeader from "@/components/PageHeader.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { errorMessage } from "@/lib/errors";
 import type { ImportStatus, ImportTask, Page, Template } from "@/lib/types";
 
@@ -56,52 +74,82 @@ watch(() => [props.workspaceId, page.value], load, { immediate: true });
 </script>
 
 <template>
-  <div>
-    <div class="page-head">
-      <h1>{{ t("import.history") }}</h1>
-      <div class="row filters">
-        <select v-model="status" :aria-label="t('common.status')">
-          <option value="">{{ t("common.status") }}: {{ t("common.all") }}</option>
-          <option v-for="item in STATUSES" :key="item" :value="item">{{ t(`status.${item}`) }}</option>
-        </select>
-        <select v-model="templateId" :aria-label="t('import.template')">
-          <option value="">{{ t("import.template") }}: {{ t("common.all") }}</option>
-          <option v-for="item in templates" :key="item.id" :value="String(item.id)">{{ item.name }}</option>
-        </select>
-      </div>
-    </div>
-    <p v-if="error" class="error">{{ error }}</p>
+  <div class="space-y-6">
+    <PageHeader :title="t('import.history')">
+      <template #actions>
+        <Select v-model="status">
+          <SelectTrigger class="w-40" :aria-label="t('common.status')">
+            <SelectValue :placeholder="`${t('common.status')}: ${t('common.all')}`" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">{{ t("common.all") }}</SelectItem>
+            <SelectItem v-for="item in STATUSES" :key="item" :value="item">
+              {{ t(`status.${item}`) }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+        <Select v-model="templateId">
+          <SelectTrigger class="w-48" :aria-label="t('import.template')">
+            <SelectValue :placeholder="`${t('import.template')}: ${t('common.all')}`" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">{{ t("common.all") }}</SelectItem>
+            <SelectItem v-for="item in templates" :key="item.id" :value="String(item.id)">
+              {{ item.name }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </template>
+    </PageHeader>
+
+    <Alert v-if="error" variant="destructive">
+      <AlertDescription>{{ error }}</AlertDescription>
+    </Alert>
+
     <EmptyState v-if="!tasks.length" :title="t('common.empty')" />
-    <table v-else class="data">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>{{ t("template.target") }}</th>
-          <th>{{ t("common.status") }}</th>
-          <th>{{ t("import.rows") }}</th>
-          <th>{{ t("import.errors") }}</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="task in tasks" :key="task.id">
-          <td><RouterLink :to="`/imports/${task.id}`">{{ task.id }}</RouterLink></td>
-          <td>{{ task.target_table }}</td>
-          <td><StatusBadge :status="task.status" /></td>
-          <td>{{ task.row_count }}</td>
-          <td>{{ task.error_count }}</td>
-          <td class="muted">{{ task.operator }} · {{ task.created_at ? new Date(task.created_at).toLocaleString() : "" }}</td>
-        </tr>
-      </tbody>
-    </table>
-    <div v-if="total > PAGE_SIZE" class="row" style="margin-top: 12px">
-      <button class="ghost" :disabled="page === 1" @click="page -= 1">{{ t("common.prev") }}</button>
-      <span class="muted">{{ page }}</span>
-      <button class="ghost" :disabled="page * PAGE_SIZE >= total" @click="page += 1">{{ t("common.next") }}</button>
-    </div>
+    <template v-else>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>#</TableHead>
+            <TableHead>{{ t("template.target") }}</TableHead>
+            <TableHead>{{ t("common.status") }}</TableHead>
+            <TableHead>{{ t("import.rows") }}</TableHead>
+            <TableHead>{{ t("import.errors") }}</TableHead>
+            <TableHead></TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow v-for="task in tasks" :key="task.id">
+            <TableCell>
+              <RouterLink :to="`/imports/${task.id}`" class="font-medium hover:underline">
+                {{ task.id }}
+              </RouterLink>
+            </TableCell>
+            <TableCell>{{ task.target_table }}</TableCell>
+            <TableCell><StatusBadge :status="task.status" /></TableCell>
+            <TableCell>{{ task.row_count }}</TableCell>
+            <TableCell>{{ task.error_count }}</TableCell>
+            <TableCell class="text-muted-foreground">
+              {{ task.operator }} · {{ task.created_at ? new Date(task.created_at).toLocaleString() : "" }}
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+      <div v-if="total > PAGE_SIZE" class="flex items-center gap-2">
+        <Button variant="outline" size="sm" :disabled="page === 1" @click="page -= 1">
+          {{ t("common.prev") }}
+        </Button>
+        <span class="text-sm text-muted-foreground">{{ page }}</span>
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="page * PAGE_SIZE >= total"
+          @click="page += 1"
+        >
+          {{ t("common.next") }}
+        </Button>
+      </div>
+    </template>
   </div>
 </template>
-
-<style scoped>
-.filters { margin-left: auto; }
-</style>

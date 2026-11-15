@@ -3,6 +3,19 @@ import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { api } from "@/api/client";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { errorMessage } from "@/lib/errors";
 import type { SynonymGroup } from "@/lib/types";
 
@@ -13,6 +26,7 @@ const { t } = useI18n();
 const groups = ref<SynonymGroup[]>([]);
 const draft = ref("");
 const error = ref("");
+const deleteTarget = ref<SynonymGroup | null>(null);
 
 const base = () => `/workspaces/${props.workspaceId}/synonym-groups`;
 const splitTerms = (text: string): string[] =>
@@ -51,36 +65,52 @@ const save = (group: SynonymGroup, text: string) => run(async () => {
   groups.value = groups.value.map((item) => (item.id === group.id ? updated : item));
 });
 
-const remove = (group: SynonymGroup) => run(async () => {
-  if (!window.confirm(t("common.confirmDelete"))) return;
-  await api.delete(`${base()}/${group.id}`);
-  groups.value = groups.value.filter((item) => item.id !== group.id);
+const remove = () => run(async () => {
+  if (deleteTarget.value == null) return;
+  await api.delete(`${base()}/${deleteTarget.value.id}`);
+  groups.value = groups.value.filter((item) => item.id !== deleteTarget.value?.id);
+  deleteTarget.value = null;
 });
 
 watch(() => props.workspaceId, load, { immediate: true });
 </script>
 
 <template>
-  <div class="card stack">
-    <h2>{{ t("template.synonyms") }}</h2>
-    <p class="muted">{{ t("template.synonymHint") }}</p>
-    <div v-for="group in groups" :key="group.id" class="row">
-      <input
-        class="grow"
-        :value="group.terms.join(', ')"
-        @change="save(group, ($event.target as HTMLInputElement).value)"
-      />
-      <button class="ghost" @click="remove(group)">{{ t("common.delete") }}</button>
-    </div>
-    <div class="row">
-      <input v-model="draft" class="grow" placeholder="水单号, 流水号, serial_no" @keydown.enter="add" />
-      <button class="ghost" @click="add">{{ t("common.add") }}</button>
-    </div>
-    <p v-if="error" class="error">{{ error }}</p>
-  </div>
-</template>
+  <Card>
+    <CardHeader><CardTitle>{{ t("template.synonyms") }}</CardTitle></CardHeader>
+    <CardContent class="space-y-2">
+      <p class="text-sm text-muted-foreground">{{ t("template.synonymHint") }}</p>
+      <div v-for="group in groups" :key="group.id" class="flex gap-2">
+        <Input
+          class="flex-1"
+          :model-value="group.terms.join(', ')"
+          @change="save(group, ($event.target as HTMLInputElement).value)"
+        />
+        <Button variant="outline" @click="deleteTarget = group">{{ t("common.delete") }}</Button>
+      </div>
+      <div class="flex gap-2">
+        <Input
+          v-model="draft"
+          class="flex-1"
+          placeholder="水单号, 流水号, serial_no"
+          @keydown.enter="add"
+        />
+        <Button variant="outline" @click="add">{{ t("common.add") }}</Button>
+      </div>
+      <p v-if="error" class="text-sm text-destructive">{{ error }}</p>
+    </CardContent>
+  </Card>
 
-<style scoped>
-h2 { font-size: 16px; margin: 0; }
-.grow { flex: 1; }
-</style>
+  <AlertDialog :open="deleteTarget !== null" @update:open="(open) => { if (!open) deleteTarget = null; }">
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>{{ t("common.confirmDelete") }}</AlertDialogTitle>
+        <AlertDialogDescription>{{ deleteTarget?.terms.join(", ") }}</AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>{{ t("common.cancel") }}</AlertDialogCancel>
+        <AlertDialogAction @click="remove">{{ t("common.delete") }}</AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
+</template>

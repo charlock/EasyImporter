@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
 
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { Unpivot } from "@/lib/types";
 
 /** 长表拆行配置。每次修改都产出新对象，由父组件替换。 */
@@ -19,8 +24,8 @@ function update(patch: Partial<Unpivot>): void {
   if (props.modelValue) emit("update:modelValue", { ...props.modelValue, ...patch });
 }
 
-function toggle(event: Event): void {
-  emit("update:modelValue", (event.target as HTMLInputElement).checked ? { ...EMPTY } : null);
+function toggle(checked: boolean | "indeterminate"): void {
+  emit("update:modelValue", checked === true ? { ...EMPTY } : null);
 }
 
 const splitPrefix = (text: string): string[] =>
@@ -35,83 +40,82 @@ function setMeasure(index: number, patch: { excel_leaf?: string; db_column?: str
   if (!props.modelValue) return;
   update({ measures: props.modelValue.measures.map((item, i) => (i === index ? { ...item, ...patch } : item)) });
 }
-
-const value = (event: Event): string => (event.target as HTMLInputElement).value;
 </script>
 
 <template>
-  <div class="card stack">
-    <label class="field inline">
-      <input type="checkbox" :checked="!!modelValue" @change="toggle" />
-      <span>{{ t("template.enableUnpivot") }}</span>
-    </label>
-    <template v-if="modelValue">
-      <label class="field">
-        <span>{{ t("template.dimensionColumn") }}</span>
-        <input
-          :value="modelValue.dimension_column"
-          list="db-columns"
-          @input="update({ dimension_column: value($event) })"
-        />
+  <Card>
+    <CardContent class="space-y-4 pt-6">
+      <label class="flex cursor-pointer items-center gap-2 text-sm">
+        <Checkbox :model-value="!!modelValue" @update:model-value="toggle" />
+        <span>{{ t("template.enableUnpivot") }}</span>
       </label>
+      <template v-if="modelValue">
+        <div class="space-y-2">
+          <Label>{{ t("template.dimensionColumn") }}</Label>
+          <Input
+            :model-value="modelValue.dimension_column"
+            list="db-columns"
+            @update:model-value="update({ dimension_column: String($event) })"
+          />
+        </div>
 
-      <strong>{{ t("template.groups") }}</strong>
-      <div v-for="(group, index) in modelValue.groups" :key="`g${index}`" class="row">
-        <input
-          :value="group.dimension_value"
-          :placeholder="t('template.dimensionValue')"
-          @input="setGroup(index, { dimension_value: value($event) })"
-        />
-        <input
-          :value="group.match_prefix.join(' / ')"
-          :placeholder="t('template.matchPrefix')"
-          @change="setGroup(index, { match_prefix: splitPrefix(value($event)) })"
-        />
-        <button
-          class="ghost"
-          :disabled="modelValue.groups.length === 1"
-          @click="update({ groups: modelValue.groups.filter((_, i) => i !== index) })"
-        >{{ t("common.remove") }}</button>
-      </div>
-      <div>
-        <button class="ghost" @click="update({ groups: [...modelValue.groups, { dimension_value: '', match_prefix: [] }] })">
-          {{ t("common.add") }}
-        </button>
-      </div>
+        <div class="space-y-2">
+          <strong class="text-sm">{{ t("template.groups") }}</strong>
+          <div v-for="(group, index) in modelValue.groups" :key="`g${index}`" class="flex gap-2">
+            <Input
+              :model-value="group.dimension_value"
+              :placeholder="t('template.dimensionValue')"
+              @update:model-value="setGroup(index, { dimension_value: String($event) })"
+            />
+            <Input
+              :model-value="group.match_prefix.join(' / ')"
+              :placeholder="t('template.matchPrefix')"
+              @change="setGroup(index, { match_prefix: splitPrefix(($event.target as HTMLInputElement).value) })"
+            />
+            <Button
+              variant="outline"
+              :disabled="modelValue.groups.length === 1"
+              @click="update({ groups: modelValue.groups.filter((_, i) => i !== index) })"
+            >{{ t("common.remove") }}</Button>
+          </div>
+          <Button variant="outline" @click="update({ groups: [...modelValue.groups, { dimension_value: '', match_prefix: [] }] })">
+            {{ t("common.add") }}
+          </Button>
+        </div>
 
-      <strong>{{ t("template.measures") }}</strong>
-      <div v-for="(measure, index) in modelValue.measures" :key="`m${index}`" class="row">
-        <input
-          :value="measure.excel_leaf"
-          :placeholder="t('template.excelLeaf')"
-          @input="setMeasure(index, { excel_leaf: value($event) })"
-        />
-        <input
-          :value="measure.db_column"
-          list="db-columns"
-          :placeholder="t('template.pickColumn')"
-          @input="setMeasure(index, { db_column: value($event) })"
-        />
-        <button
-          class="ghost"
-          :disabled="modelValue.measures.length === 1"
-          @click="update({ measures: modelValue.measures.filter((_, i) => i !== index) })"
-        >{{ t("common.remove") }}</button>
-      </div>
-      <div>
-        <button class="ghost" @click="update({ measures: [...modelValue.measures, { excel_leaf: '', db_column: '' }] })">
-          {{ t("common.add") }}
-        </button>
-      </div>
+        <div class="space-y-2">
+          <strong class="text-sm">{{ t("template.measures") }}</strong>
+          <div v-for="(measure, index) in modelValue.measures" :key="`m${index}`" class="flex gap-2">
+            <Input
+              :model-value="measure.excel_leaf"
+              :placeholder="t('template.excelLeaf')"
+              @update:model-value="setMeasure(index, { excel_leaf: String($event) })"
+            />
+            <Input
+              :model-value="measure.db_column"
+              list="db-columns"
+              :placeholder="t('template.pickColumn')"
+              @update:model-value="setMeasure(index, { db_column: String($event) })"
+            />
+            <Button
+              variant="outline"
+              :disabled="modelValue.measures.length === 1"
+              @click="update({ measures: modelValue.measures.filter((_, i) => i !== index) })"
+            >{{ t("common.remove") }}</Button>
+          </div>
+          <Button variant="outline" @click="update({ measures: [...modelValue.measures, { excel_leaf: '', db_column: '' }] })">
+            {{ t("common.add") }}
+          </Button>
+        </div>
 
-      <label class="field inline">
-        <input
-          type="checkbox"
-          :checked="modelValue.skip_empty_measures"
-          @change="update({ skip_empty_measures: ($event.target as HTMLInputElement).checked })"
-        />
-        <span>{{ t("template.skipEmpty") }}</span>
-      </label>
-    </template>
-  </div>
+        <label class="flex cursor-pointer items-center gap-2 text-sm">
+          <Checkbox
+            :model-value="modelValue.skip_empty_measures"
+            @update:model-value="update({ skip_empty_measures: $event === true })"
+          />
+          <span>{{ t("template.skipEmpty") }}</span>
+        </label>
+      </template>
+    </CardContent>
+  </Card>
 </template>

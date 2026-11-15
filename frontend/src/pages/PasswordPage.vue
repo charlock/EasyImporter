@@ -2,8 +2,15 @@
 import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
+import { toast } from "vue-sonner";
 
 import { api } from "@/api/client";
+import PageHeader from "@/components/PageHeader.vue";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { errorMessage } from "@/lib/errors";
 import { useSession } from "@/stores/session";
 
@@ -32,7 +39,7 @@ async function submit(): Promise<void> {
     await api.post("/auth/password", { old_password: oldPassword.value, new_password: newPassword.value });
     // 后端改密后删除该用户全部会话，本地状态随之作废。
     session.reset();
-    window.alert(t("auth.passwordChanged"));
+    toast.success(t("auth.passwordChanged"));
     await router.push("/login");
   } catch (caught) {
     error.value = errorMessage(caught);
@@ -43,28 +50,51 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div class="stack">
-    <div class="page-head"><h1>{{ t("auth.changePassword") }}</h1></div>
-    <form class="card stack narrow" @submit.prevent="submit">
-      <p v-if="session.me?.must_change_password" class="muted">{{ t("auth.mustChange") }}</p>
-      <label class="field">
-        <span>{{ t("auth.oldPassword") }}</span>
-        <input v-model="oldPassword" type="password" autocomplete="current-password" required />
-      </label>
-      <label class="field">
-        <span>{{ t("auth.newPassword") }}</span>
-        <input v-model="newPassword" type="password" autocomplete="new-password" minlength="8" required />
-      </label>
-      <label class="field">
-        <span>{{ t("auth.confirmPassword") }}</span>
-        <input v-model="confirmPassword" type="password" autocomplete="new-password" required />
-      </label>
-      <p v-if="error" class="error">{{ error }}</p>
-      <div class="row"><button type="submit" :disabled="submitting">{{ t("common.save") }}</button></div>
-    </form>
+  <div class="space-y-6">
+    <PageHeader :title="t('auth.changePassword')" />
+    <Card class="max-w-md">
+      <CardContent class="pt-6">
+        <form class="space-y-4" @submit.prevent="submit">
+          <p v-if="session.me?.must_change_password" class="text-sm text-muted-foreground">
+            {{ t("auth.mustChange") }}
+          </p>
+          <div class="space-y-2">
+            <Label for="old-password">{{ t("auth.oldPassword") }}</Label>
+            <Input
+              id="old-password"
+              v-model="oldPassword"
+              type="password"
+              autocomplete="current-password"
+              required
+            />
+          </div>
+          <div class="space-y-2">
+            <Label for="new-password">{{ t("auth.newPassword") }}</Label>
+            <Input
+              id="new-password"
+              v-model="newPassword"
+              type="password"
+              autocomplete="new-password"
+              minlength="8"
+              required
+            />
+          </div>
+          <div class="space-y-2">
+            <Label for="confirm-password">{{ t("auth.confirmPassword") }}</Label>
+            <Input
+              id="confirm-password"
+              v-model="confirmPassword"
+              type="password"
+              autocomplete="new-password"
+              required
+            />
+          </div>
+          <Alert v-if="error" variant="destructive">
+            <AlertDescription>{{ error }}</AlertDescription>
+          </Alert>
+          <Button type="submit" :disabled="submitting">{{ t("common.save") }}</Button>
+        </form>
+      </CardContent>
+    </Card>
   </div>
 </template>
-
-<style scoped>
-.narrow { max-width: 420px; }
-</style>

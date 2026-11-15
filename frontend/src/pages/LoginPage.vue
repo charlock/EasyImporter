@@ -3,6 +3,11 @@ import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { errorMessage } from "@/lib/errors";
 import { useSession } from "@/stores/session";
 
@@ -30,26 +35,36 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div class="login">
-    <form class="card" @submit.prevent="submit">
-      <h1>{{ t("app.name") }}</h1>
-      <p class="muted">{{ t("app.tagline") }}</p>
-      <label class="field">
-        <span>{{ t("auth.username") }}</span>
-        <input v-model="username" autocomplete="username" required />
-      </label>
-      <label class="field">
-        <span>{{ t("auth.password") }}</span>
-        <input v-model="password" type="password" autocomplete="current-password" required />
-      </label>
-      <p v-if="error" class="error">{{ error }}</p>
-      <button type="submit" :disabled="submitting">{{ t("auth.submit") }}</button>
-    </form>
+  <div class="flex min-h-screen items-center justify-center px-4">
+    <Card class="w-full max-w-sm">
+      <CardHeader>
+        <CardTitle class="text-2xl">{{ t("app.name") }}</CardTitle>
+        <CardDescription>{{ t("app.tagline") }}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form class="space-y-4" @submit.prevent="submit">
+          <div class="space-y-2">
+            <Label for="username">{{ t("auth.username") }}</Label>
+            <Input id="username" v-model="username" autocomplete="username" required />
+          </div>
+          <div class="space-y-2">
+            <Label for="password">{{ t("auth.password") }}</Label>
+            <Input
+              id="password"
+              v-model="password"
+              type="password"
+              autocomplete="current-password"
+              required
+            />
+          </div>
+          <Alert v-if="error" variant="destructive">
+            <AlertDescription>{{ error }}</AlertDescription>
+          </Alert>
+          <Button type="submit" class="w-full" :disabled="submitting">
+            {{ t("auth.submit") }}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   </div>
 </template>
-
-<style scoped>
-.login { min-height: 100vh; display: grid; place-items: center; }
-form { width: 360px; }
-h1 { margin-bottom: 4px; }
-</style>

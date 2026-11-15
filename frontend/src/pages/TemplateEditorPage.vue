@@ -7,6 +7,20 @@ import { api } from "@/api/client";
 import RuleOverridesEditor from "@/components/template/RuleOverridesEditor.vue";
 import SynonymGroups from "@/components/template/SynonymGroups.vue";
 import UnpivotEditor from "@/components/template/UnpivotEditor.vue";
+import PageHeader from "@/components/PageHeader.vue";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { parseWorkbook } from "@/features/excel/parse";
 import { pathLabel } from "@/features/header/tree";
 import { errorMessage } from "@/lib/errors";
@@ -64,6 +78,27 @@ const pathKey = (path: string[]): string => path.join("\u0000");
 const suggestionByPath = computed(
   () => new Map(suggestions.value.map((item) => [pathKey(item.excel_path), item])),
 );
+
+// shadcn Select 只认字符串，数据源 id 在此做 string ⇄ number 转换。
+const datasourceIdStr = computed({
+  get: () => (form.value.datasource_id == null ? "" : String(form.value.datasource_id)),
+  set: (value: string) => {
+    form.value = { ...form.value, datasource_id: value === "" ? null : Number(value) };
+  },
+});
+
+const selectedTableIndex = computed(() => {
+  const index = tables.value.findIndex(
+    (item) => item.schema === form.value.target_schema && item.name === form.value.target_table,
+  );
+  return index === -1 ? "" : String(index);
+});
+
+function onTableIndex(value: string): void {
+  if (value === "") return;
+  const table = tables.value[Number(value)];
+  form.value = { ...form.value, target_schema: table?.schema ?? "", target_table: table?.name ?? "" };
+}
 
 async function guarded(action: () => Promise<void>): Promise<void> {
   try {
@@ -129,15 +164,6 @@ watch(
   { immediate: true },
 );
 
-function onTable(event: Event): void {
-  const table = tables.value[Number((event.target as HTMLSelectElement).value)];
-  form.value = { ...form.value, target_schema: table?.schema ?? "", target_table: table?.name ?? "" };
-}
-
-function isSelected(table: TableInfo): boolean {
-  return table.schema === form.value.target_schema && table.name === form.value.target_table;
-}
-
 const onSample = (event: Event) => guarded(async () => {
   const file = (event.target as HTMLInputElement).files?.[0];
   if (!file) return;
@@ -172,9 +198,9 @@ function setMapping(patch: Partial<Mapping>): void {
   form.value = { ...form.value, mapping: { ...form.value.mapping, ...patch } };
 }
 
-function setColumn(index: number, dbColumn: string): void {
+function setColumn(index: number, dbColumn: string | number): void {
   setMapping({
-    columns: form.value.mapping.columns.map((item, i) => (i === index ? { ...item, db_column: dbColumn } : item)),
+    columns: form.value.mapping.columns.map((item, i) => (i === index ? { ...item, db_column: String(dbColumn) } : item)),
   });
 }
 
@@ -189,8 +215,6 @@ function toggleIn(field: "business_keys" | "scope_columns", column: string, chec
   const next = checked ? [...current, column] : current.filter((item) => item !== column);
   form.value = { ...form.value, [field]: next };
 }
-
-const inputValue = (event: Event): string => (event.target as HTMLInputElement).value;
 
 const save = () => guarded(async () => {
   error.value = "";
@@ -217,90 +241,123 @@ const save = () => guarded(async () => {
 </script>
 
 <template>
-  <div class="stack">
-    <div class="page-head"><h1>{{ editing ? form.name : t("template.create") }}</h1></div>
+  <div class="space-y-6">
+    <PageHeader :title="editing ? form.name : t('template.create')" />
     <datalist id="db-columns">
       <option v-for="column in schema?.columns ?? []" :key="column.name" :value="column.name">
         {{ column.comment }}
       </option>
     </datalist>
 
-    <div class="card stack">
-      <label class="field"><span>{{ t("common.name") }}</span><input v-model="form.name" /></label>
-      <label class="field"><span>{{ t("common.description") }}</span><input v-model="form.description" /></label>
-      <label class="field">
-        <span>{{ t("datasource.title") }}</span>
-        <select v-model="form.datasource_id">
-          <option v-for="item in datasources" :key="item.id" :value="item.id">{{ item.name }}</option>
-        </select>
-      </label>
-      <label class="field">
-        <span>{{ t("template.target") }}</span>
-        <select @change="onTable">
-          <option value="">—</option>
-          <option
-            v-for="(item, index) in tables"
-            :key="`${item.schema}.${item.name}`"
-            :value="index"
-            :selected="isSelected(item)"
-          >
-            {{ item.schema ? `${item.schema}.${item.name}` : item.name }}
-          </option>
-        </select>
-      </label>
-      <div class="row">
-        <label class="field"><span>{{ t("template.sheet") }}</span><input v-model="form.sheet" /></label>
-        <label class="field"><span>{{ t("template.headerStart") }}</span>
-          <input v-model.number="form.header_start_row" type="number" min="1" /></label>
-        <label class="field"><span>{{ t("template.headerRows") }}</span>
-          <input v-model.number="form.header_row_count" type="number" min="1" max="10" /></label>
-      </div>
-      <label class="drop">
-        <input type="file" accept=".xlsx" @change="onSample" />
-        <span>{{ t("template.sample") }} · {{ t("import.drop") }}</span>
-      </label>
-    </div>
+    <Card>
+      <CardContent class="space-y-4 pt-6">
+        <div class="space-y-2">
+          <Label for="tpl-name">{{ t("common.name") }}</Label>
+          <Input id="tpl-name" v-model="form.name" />
+        </div>
+        <div class="space-y-2">
+          <Label for="tpl-desc">{{ t("common.description") }}</Label>
+          <Input id="tpl-desc" v-model="form.description" />
+        </div>
+        <div class="space-y-2">
+          <Label>{{ t("datasource.title") }}</Label>
+          <Select v-model="datasourceIdStr">
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="item in datasources" :key="item.id" :value="String(item.id)">
+                {{ item.name }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div class="space-y-2">
+          <Label>{{ t("template.target") }}</Label>
+          <Select :model-value="selectedTableIndex" @update:model-value="onTableIndex(String($event))">
+            <SelectTrigger>
+              <SelectValue placeholder="—" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem
+                v-for="(item, index) in tables"
+                :key="`${item.schema}.${item.name}`"
+                :value="String(index)"
+              >
+                {{ item.schema ? `${item.schema}.${item.name}` : item.name }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div class="grid grid-cols-3 gap-4">
+          <div class="space-y-2">
+            <Label for="tpl-sheet">{{ t("template.sheet") }}</Label>
+            <Input id="tpl-sheet" v-model="form.sheet" />
+          </div>
+          <div class="space-y-2">
+            <Label for="tpl-header-start">{{ t("template.headerStart") }}</Label>
+            <Input id="tpl-header-start" v-model.number="form.header_start_row" type="number" min="1" />
+          </div>
+          <div class="space-y-2">
+            <Label for="tpl-header-rows">{{ t("template.headerRows") }}</Label>
+            <Input id="tpl-header-rows" v-model.number="form.header_row_count" type="number" min="1" max="10" />
+          </div>
+        </div>
+        <label class="grid cursor-pointer place-items-center rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground hover:border-muted-foreground">
+          <input type="file" accept=".xlsx" class="hidden" @change="onSample" />
+          <span>{{ t("template.sample") }} · {{ t("import.drop") }}</span>
+        </label>
+      </CardContent>
+    </Card>
 
-    <div v-if="form.mapping.columns.length" class="card">
-      <h2>{{ t("template.mapping") }}</h2>
-      <table class="data">
-        <tbody>
-          <tr v-for="(column, index) in form.mapping.columns" :key="index">
-            <td>{{ pathLabel(column.excel_path) }}</td>
-            <td>
-              <input
-                :value="column.db_column"
-                list="db-columns"
-                :placeholder="t('template.pickColumn')"
-                @input="setColumn(index, inputValue($event))"
-              />
-            </td>
-            <td class="muted">{{ suggestionByPath.get(pathKey(column.excel_path))?.score ?? "" }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <Card v-if="form.mapping.columns.length">
+      <CardHeader><CardTitle>{{ t("template.mapping") }}</CardTitle></CardHeader>
+      <CardContent>
+        <table class="w-full caption-bottom text-sm">
+          <tbody>
+            <tr v-for="(column, index) in form.mapping.columns" :key="index" class="border-b last:border-0">
+              <td class="px-2 py-1 align-middle">{{ pathLabel(column.excel_path) }}</td>
+              <td class="px-2 py-1 align-middle">
+                <Input
+                  :model-value="column.db_column"
+                  list="db-columns"
+                  :placeholder="t('template.pickColumn')"
+                  @update:model-value="setColumn(index, $event)"
+                />
+              </td>
+              <td class="px-2 py-1 align-middle text-muted-foreground">
+                {{ suggestionByPath.get(pathKey(column.excel_path))?.score ?? "" }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
 
-    <div class="card stack">
-      <h2>{{ t("template.constants") }}</h2>
-      <div v-for="(item, index) in form.mapping.constants" :key="index" class="row">
-        <input
-          :value="item.db_column"
-          list="db-columns"
-          :placeholder="t('template.pickColumn')"
-          @input="setConstant(index, { db_column: inputValue($event) })"
-        />
-        <input :value="item.value" :placeholder="t('common.value')" @input="setConstant(index, { value: inputValue($event) })" />
-        <button class="ghost" @click="setMapping({ constants: form.mapping.constants.filter((_, i) => i !== index) })">
-          {{ t("common.remove") }}
-        </button>
-      </div>
-      <div>
-        <button class="ghost" @click="setMapping({ constants: [...form.mapping.constants, { db_column: '', value: '' }] })">
+    <Card>
+      <CardHeader><CardTitle>{{ t("template.constants") }}</CardTitle></CardHeader>
+      <CardContent class="space-y-2">
+        <div v-for="(item, index) in form.mapping.constants" :key="index" class="flex gap-2">
+          <Input
+            :model-value="item.db_column"
+            list="db-columns"
+            :placeholder="t('template.pickColumn')"
+            @update:model-value="setConstant(index, { db_column: String($event) })"
+          />
+          <Input
+            :model-value="item.value"
+            :placeholder="t('common.value')"
+            @update:model-value="setConstant(index, { value: String($event) })"
+          />
+          <Button variant="outline" @click="setMapping({ constants: form.mapping.constants.filter((_, i) => i !== index) })">
+            {{ t("common.remove") }}
+          </Button>
+        </div>
+        <Button variant="outline" @click="setMapping({ constants: [...form.mapping.constants, { db_column: '', value: '' }] })">
           {{ t("common.add") }}
-        </button>
-      </div>
-    </div>
+        </Button>
+      </CardContent>
+    </Card>
 
     <UnpivotEditor
       :model-value="form.mapping.unpivot"
@@ -308,63 +365,67 @@ const save = () => guarded(async () => {
       @update:model-value="setMapping({ unpivot: $event })"
     />
 
-    <div class="card stack">
-      <label class="field">
-        <span>{{ t("template.strategy") }}</span>
-        <select v-model="form.strategy">
-          <option value="APPEND">{{ t("strategy.APPEND") }}</option>
-          <option value="UPSERT">{{ t("strategy.UPSERT") }}</option>
-          <option value="REPLACE_SCOPE">{{ t("strategy.REPLACE_SCOPE") }}</option>
-        </select>
-      </label>
-      <p v-if="!dbColumns.length" class="muted">{{ t("template.noTable") }}</p>
-      <template v-else>
-        <div class="field">
-          <span>{{ t("template.businessKeys") }}</span>
-          <div class="checks">
-            <label v-for="column in dbColumns" :key="column" class="field inline">
-              <input
-                type="checkbox"
-                :checked="form.business_keys.includes(column)"
-                @change="toggleIn('business_keys', column, ($event.target as HTMLInputElement).checked)"
-              />
-              <span>{{ column }}</span>
-            </label>
-          </div>
+    <Card>
+      <CardContent class="space-y-4 pt-6">
+        <div class="space-y-2">
+          <Label>{{ t("template.strategy") }}</Label>
+          <Select v-model="form.strategy">
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="APPEND">{{ t("strategy.APPEND") }}</SelectItem>
+              <SelectItem value="UPSERT">{{ t("strategy.UPSERT") }}</SelectItem>
+              <SelectItem value="REPLACE_SCOPE">{{ t("strategy.REPLACE_SCOPE") }}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-        <div v-if="form.strategy === 'REPLACE_SCOPE'" class="field">
-          <span>{{ t("template.scopeColumns") }}</span>
-          <div class="checks">
-            <label v-for="column in dbColumns" :key="column" class="field inline">
-              <input
-                type="checkbox"
-                :checked="form.scope_columns.includes(column)"
-                @change="toggleIn('scope_columns', column, ($event.target as HTMLInputElement).checked)"
-              />
-              <span>{{ column }}</span>
-            </label>
+        <p v-if="!dbColumns.length" class="text-sm text-muted-foreground">{{ t("template.noTable") }}</p>
+        <template v-else>
+          <div class="space-y-2">
+            <Label>{{ t("template.businessKeys") }}</Label>
+            <div class="flex flex-wrap gap-x-4 gap-y-2">
+              <label v-for="column in dbColumns" :key="column" class="flex cursor-pointer items-center gap-2 text-sm">
+                <Checkbox
+                  :model-value="form.business_keys.includes(column)"
+                  @update:model-value="toggleIn('business_keys', column, $event === true)"
+                />
+                <span>{{ column }}</span>
+              </label>
+            </div>
           </div>
-        </div>
-      </template>
-    </div>
+          <div v-if="form.strategy === 'REPLACE_SCOPE'" class="space-y-2">
+            <Label>{{ t("template.scopeColumns") }}</Label>
+            <div class="flex flex-wrap gap-x-4 gap-y-2">
+              <label v-for="column in dbColumns" :key="column" class="flex cursor-pointer items-center gap-2 text-sm">
+                <Checkbox
+                  :model-value="form.scope_columns.includes(column)"
+                  @update:model-value="toggleIn('scope_columns', column, $event === true)"
+                />
+                <span>{{ column }}</span>
+              </label>
+            </div>
+          </div>
+        </template>
+      </CardContent>
+    </Card>
 
     <RuleOverridesEditor v-model="form.rule_overrides" :columns="dbColumns" />
 
-    <div class="card stack">
-      <p v-if="error" class="error">{{ error }}</p>
-      <div class="row">
-        <button :disabled="saving" @click="save">{{ t("common.save") }}</button>
-        <RouterLink to="/templates"><button class="ghost">{{ t("common.cancel") }}</button></RouterLink>
-      </div>
-    </div>
+    <Card>
+      <CardContent class="space-y-4 pt-6">
+        <Alert v-if="error" variant="destructive">
+          <AlertDescription>{{ error }}</AlertDescription>
+        </Alert>
+        <div class="flex gap-2">
+          <Button :disabled="saving" @click="save">{{ t("common.save") }}</Button>
+          <Button variant="outline" as-child>
+            <RouterLink to="/templates">{{ t("common.cancel") }}</RouterLink>
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
 
     <SynonymGroups :workspace-id="workspaceId" />
   </div>
 </template>
-
-<style scoped>
-.drop { display: grid; place-items: center; padding: 24px; border: 1px dashed var(--line); border-radius: var(--radius); cursor: pointer; }
-.drop input { display: none; }
-h2 { font-size: 16px; margin: 0 0 12px; }
-.checks { display: flex; flex-wrap: wrap; gap: 8px 16px; }
-</style>

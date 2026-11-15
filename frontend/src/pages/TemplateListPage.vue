@@ -1,9 +1,21 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { Plus } from "@lucide/vue";
 
 import { api } from "@/api/client";
 import EmptyState from "@/components/EmptyState.vue";
+import PageHeader from "@/components/PageHeader.vue";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useSession } from "@/stores/session";
 import type { Template } from "@/lib/types";
 
@@ -23,31 +35,40 @@ watch(
 </script>
 
 <template>
-  <div>
-    <div class="page-head">
-      <h1>{{ t("template.title") }}</h1>
-      <RouterLink v-if="session.isAdmin && workspaceId != null" to="/templates/new">
-        <button>{{ t("template.create") }}</button>
-      </RouterLink>
-    </div>
+  <div class="space-y-6">
+    <PageHeader :title="t('template.title')">
+      <template #actions>
+        <Button v-if="session.isAdmin && workspaceId != null" as-child>
+          <RouterLink to="/templates/new"><Plus />{{ t("template.create") }}</RouterLink>
+        </Button>
+      </template>
+    </PageHeader>
+
     <EmptyState v-if="!templates.length" :title="t('common.empty')" />
-    <table v-else class="data">
-      <thead>
-        <tr>
-          <th>{{ t("common.name") }}</th>
-          <th>{{ t("template.target") }}</th>
-          <th>{{ t("template.strategy") }}</th>
-          <th>{{ t("common.status") }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="item in templates" :key="item.id">
-          <td><RouterLink :to="`/templates/${item.id}`">{{ item.name }}</RouterLink></td>
-          <td>{{ item.target_schema }}.{{ item.target_table }}</td>
-          <td>{{ t(`strategy.${item.strategy}`) }}</td>
-          <td>{{ item.is_archived ? t("common.empty") : item.current_version }}</td>
-        </tr>
-      </tbody>
-    </table>
+    <Table v-else>
+      <TableHeader>
+        <TableRow>
+          <TableHead>{{ t("common.name") }}</TableHead>
+          <TableHead>{{ t("template.target") }}</TableHead>
+          <TableHead>{{ t("template.strategy") }}</TableHead>
+          <TableHead>{{ t("common.status") }}</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        <TableRow v-for="item in templates" :key="item.id">
+          <TableCell>
+            <RouterLink :to="`/templates/${item.id}`" class="font-medium hover:underline">
+              {{ item.name }}
+            </RouterLink>
+          </TableCell>
+          <TableCell>{{ item.target_schema }}.{{ item.target_table }}</TableCell>
+          <TableCell>{{ t(`strategy.${item.strategy}`) }}</TableCell>
+          <TableCell>
+            <Badge v-if="item.is_archived" variant="secondary">{{ t("template.archived") }}</Badge>
+            <span v-else class="text-muted-foreground">v{{ item.current_version }}</span>
+          </TableCell>
+        </TableRow>
+      </TableBody>
+    </Table>
   </div>
 </template>

@@ -1,25 +1,37 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { Workspace } from "@/lib/types";
 
-defineProps<{ workspaces: Workspace[]; modelValue: number | null }>();
+const props = defineProps<{ workspaces: Workspace[]; modelValue: number | null }>();
 const emit = defineEmits<{ "update:modelValue": [number] }>();
 const { t } = useI18n();
 
-function onChange(event: Event): void {
-  emit("update:modelValue", Number((event.target as HTMLSelectElement).value));
-}
+const value = computed<string | undefined>({
+  get: () => (props.modelValue == null ? undefined : String(props.modelValue)),
+  set: (next) => {
+    if (next != null) emit("update:modelValue", Number(next));
+  },
+});
 </script>
 
 <template>
-  <label class="field inline">
-    <span>{{ t("workspace.label") }}</span>
-    <select :value="modelValue ?? ''" @change="onChange">
-      <option value="" disabled>{{ t("workspace.none") }}</option>
-      <option v-for="workspace in workspaces" :key="workspace.id" :value="workspace.id">
+  <Select v-model="value">
+    <SelectTrigger class="w-44" :aria-label="t('workspace.label')">
+      <SelectValue :placeholder="t('workspace.none')" />
+    </SelectTrigger>
+    <SelectContent>
+      <SelectItem v-for="workspace in workspaces" :key="workspace.id" :value="String(workspace.id)">
         {{ workspace.name }}
-      </option>
-    </select>
-  </label>
+      </SelectItem>
+    </SelectContent>
+  </Select>
 </template>

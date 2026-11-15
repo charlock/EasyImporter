@@ -2,16 +2,15 @@
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
+import { FileSpreadsheet, SlidersHorizontal, Upload } from "@lucide/vue";
 
 import { api } from "@/api/client";
 import RuleOverridesEditor from "@/components/template/RuleOverridesEditor.vue";
-import SamplePreview from "@/components/template/SamplePreview.vue";
+import ExcelSheetView from "@/components/template/ExcelSheetView.vue";
 import SynonymGroups from "@/components/template/SynonymGroups.vue";
 import UnpivotEditor from "@/components/template/UnpivotEditor.vue";
-import PageHeader from "@/components/PageHeader.vue";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,7 +21,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Separator } from "@/components/ui/separator";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { parseWorkbook, type ParsedSheet } from "@/features/excel/parse";
 import { pathLabel } from "@/features/header/tree";
 import { errorMessage } from "@/lib/errors";
@@ -58,8 +58,11 @@ const schema = ref<TableSchema | null>(null);
 const suggestions = ref<Suggestion[]>([]);
 const error = ref("");
 const saving = ref(false);
-/** 本次上传的样例解析结果，用于缩略图预览；切模板时清空。 */
+/** 本次上传的样例解析结果，用于工作表展示；切模板时清空。 */
 const sample = ref<ParsedSheet | null>(null);
+const sampleFileName = ref("");
+/** 新建模板默认打开配置抽屉，编辑已有模板则默认关闭。 */
+const drawerOpen = ref(!editing.value);
 
 const form = ref<TemplateForm>({
   name: "",
@@ -81,6 +84,9 @@ const dbColumns = computed(() => schema.value?.columns.map((column) => column.na
 const pathKey = (path: string[]): string => path.join("\u0000");
 const suggestionByPath = computed(
   () => new Map(suggestions.value.map((item) => [pathKey(item.excel_path), item])),
+);
+const suggestionScores = computed(
+  () => new Map(suggestions.value.map((item) => [pathKey(item.excel_path), item.score])),
 );
 
 // shadcn Select 只认字符串，数据源 id 在此做 string ⇄ number 转换。
@@ -125,6 +131,7 @@ watch(
   (id) => guarded(async () => {
     if (id === undefined || props.workspaceId == null) return;
     sample.value = null;
+    sampleFileName.value = "";
     const template = await api.get<Template>(`/workspaces/${props.workspaceId}/templates/${id}`);
     form.value = {
       name: template.name,
@@ -179,6 +186,7 @@ const onSample = (event: Event) => guarded(async () => {
     headerRowCount: form.value.header_row_count,
   });
   sample.value = parsed;
+  sampleFileName.value = file.name;
   const paths = parsed.header.leaves.map((leaf) => leaf.path);
   // 还没选表时不能匹配，清掉上一次的建议，避免分数对到别的列上。
   suggestions.value = form.value.datasource_id && form.value.target_table
@@ -247,166 +255,156 @@ const save = () => guarded(async () => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <PageHeader :title="editing ? form.name : t('template.create')" />
+  <div class="space-y-4">
     <datalist id="db-columns">
       <option v-for="column in schema?.columns ?? []" :key="column.name" :value="column.name">
         {{ column.comment }}
       </option>
     </datalist>
 
-    <!-- 一、基础信息 -->
-    <Card>
-      <CardHeader><CardTitle>{{ t("template.basicInfo") }}</CardTitle></CardHeader>
-      <CardContent class="space-y-4">
-        <div class="space-y-2">
-          <Label for="tpl-name">{{ t("common.name") }}</Label>
-          <Input id="tpl-name" v-model="form.name" />
-        </div>
-        <div class="space-y-2">
-          <Label for="tpl-desc">{{ t("common.description") }}</Label>
-          <Input id="tpl-desc" v-model="form.description" />
-        </div>
-        <div class="space-y-2">
-          <Label>{{ t("datasource.title") }}</Label>
-          <Select v-model="datasourceIdStr">
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem v-for="item in datasources" :key="item.id" :value="String(item.id)">
-                {{ item.name }}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div class="space-y-2">
-          <Label>{{ t("template.target") }}</Label>
-          <Select :model-value="selectedTableIndex" @update:model-value="onTableIndex(String($event))">
-            <SelectTrigger>
-              <SelectValue placeholder="—" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem
-                v-for="(item, index) in tables"
-                :key="`${item.schema}.${item.name}`"
-                :value="String(index)"
-              >
-                {{ item.schema ? `${item.schema}.${item.name}` : item.name }}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div class="grid grid-cols-3 gap-4">
-          <div class="space-y-2">
-            <Label for="tpl-sheet">{{ t("template.sheet") }}</Label>
-            <Input id="tpl-sheet" v-model="form.sheet" />
-          </div>
-          <div class="space-y-2">
-            <Label for="tpl-header-start">{{ t("template.headerStart") }}</Label>
-            <Input id="tpl-header-start" v-model.number="form.header_start_row" type="number" min="1" />
-          </div>
-          <div class="space-y-2">
-            <Label for="tpl-header-rows">{{ t("template.headerRows") }}</Label>
-            <Input id="tpl-header-rows" v-model.number="form.header_row_count" type="number" min="1" max="10" />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-
-    <!-- 二、模版上传识别 -->
-    <Card>
-      <CardHeader><CardTitle>{{ t("template.uploadRecognize") }}</CardTitle></CardHeader>
-      <CardContent class="space-y-4">
-        <label class="grid cursor-pointer place-items-center rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground hover:border-muted-foreground">
+    <!-- 顶部停靠栏：固定信息与操作放一行 -->
+    <div class="sticky top-14 z-30 -mx-4 flex items-center gap-2 overflow-x-auto border-b bg-background/95 px-4 py-2 backdrop-blur md:-mx-6 md:px-6">
+      <Input v-model="form.name" class="h-8 w-44 shrink-0" :placeholder="t('template.create')" />
+      <span class="shrink-0 text-sm text-muted-foreground">
+        {{ form.target_table ? `${form.target_schema}.${form.target_table}` : t("template.noTable") }}
+      </span>
+      <span v-if="form.sheet" class="shrink-0 text-sm text-muted-foreground">{{ form.sheet }}</span>
+      <span class="flex shrink-0 items-center gap-1 text-sm text-muted-foreground">
+        <FileSpreadsheet class="size-4" />
+        {{ sampleFileName || t("template.noSampleFile") }}
+      </span>
+      <div class="min-w-2 flex-1" />
+      <Button variant="outline" size="sm" class="shrink-0" as-child>
+        <label class="cursor-pointer">
           <input type="file" accept=".xlsx" class="hidden" @change="onSample" />
-          <span>{{ t("template.sample") }} · {{ t("import.drop") }}</span>
+          <Upload />{{ t("template.uploadSample") }}
         </label>
-        <SamplePreview v-if="sample" :sample="sample" />
-        <p v-if="!sample && !form.mapping.columns.length" class="text-sm text-muted-foreground">
-          {{ t("template.sampleHint") }}
-        </p>
-        <div v-if="form.mapping.columns.length">
-          <h3 class="mb-2 text-sm font-medium">{{ t("template.mapping") }}</h3>
-          <table class="w-full caption-bottom text-sm">
-            <tbody>
-              <tr v-for="(column, index) in form.mapping.columns" :key="index" class="border-b last:border-0">
-                <td class="px-2 py-1 align-middle">{{ pathLabel(column.excel_path) }}</td>
-                <td class="px-2 py-1 align-middle">
-                  <Input
-                    :model-value="column.db_column"
-                    list="db-columns"
-                    :placeholder="t('template.pickColumn')"
-                    @update:model-value="setColumn(index, $event)"
-                  />
-                </td>
-                <td class="px-2 py-1 align-middle text-muted-foreground">
-                  {{ suggestionByPath.get(pathKey(column.excel_path))?.score ?? "" }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
+      </Button>
+      <Button variant="outline" size="sm" class="shrink-0" @click="drawerOpen = true">
+        <SlidersHorizontal />{{ t("template.configure") }}
+      </Button>
+      <Button variant="ghost" size="sm" class="shrink-0" as-child>
+        <RouterLink to="/templates">{{ t("common.cancel") }}</RouterLink>
+      </Button>
+      <Button size="sm" class="shrink-0" :disabled="saving" @click="save">{{ t("common.save") }}</Button>
+    </div>
 
-    <!-- 三、导入规则 -->
-    <Card>
-      <CardHeader><CardTitle>{{ t("template.importRules") }}</CardTitle></CardHeader>
-      <CardContent>
-        <Tabs default-value="constants">
-          <TabsList>
-            <TabsTrigger value="constants">{{ t("template.constants") }}</TabsTrigger>
-            <TabsTrigger value="unpivot">{{ t("template.unpivot") }}</TabsTrigger>
-            <TabsTrigger value="strategy">{{ t("template.strategy") }}</TabsTrigger>
-            <TabsTrigger value="rules">{{ t("template.rules") }}</TabsTrigger>
-            <TabsTrigger value="synonyms">{{ t("template.synonyms") }}</TabsTrigger>
-          </TabsList>
+    <Alert v-if="error" variant="destructive">
+      <AlertDescription>{{ error }}</AlertDescription>
+    </Alert>
 
-          <TabsContent value="constants" class="space-y-2">
-            <div v-for="(item, index) in form.mapping.constants" :key="index" class="flex gap-2">
-              <Input
-                :model-value="item.db_column"
-                list="db-columns"
-                :placeholder="t('template.pickColumn')"
-                @update:model-value="setConstant(index, { db_column: String($event) })"
-              />
-              <Input
-                :model-value="item.value"
-                :placeholder="t('common.value')"
-                @update:model-value="setConstant(index, { value: String($event) })"
-              />
-              <Button variant="outline" @click="setMapping({ constants: form.mapping.constants.filter((_, i) => i !== index) })">
-                {{ t("common.remove") }}
-              </Button>
-            </div>
-            <Button variant="outline" @click="setMapping({ constants: [...form.mapping.constants, { db_column: '', value: '' }] })">
-              {{ t("common.add") }}
-            </Button>
-          </TabsContent>
+    <!-- 主区域：识别后的工作表 -->
+    <ExcelSheetView
+      v-if="sample"
+      :sample="sample"
+      :mapping-columns="form.mapping.columns"
+      :scores="suggestionScores"
+      @update:column="setColumn"
+    />
+    <template v-else>
+      <label class="grid cursor-pointer place-items-center rounded-lg border border-dashed px-4 py-16 text-sm text-muted-foreground hover:border-muted-foreground">
+        <input type="file" accept=".xlsx" class="hidden" @change="onSample" />
+        <span>{{ t("template.sample") }} · {{ t("import.drop") }}</span>
+      </label>
+      <p v-if="!form.mapping.columns.length" class="text-sm text-muted-foreground">
+        {{ t("template.sampleHint") }}
+      </p>
+      <div v-if="form.mapping.columns.length">
+        <h3 class="mb-2 text-sm font-medium">{{ t("template.mapping") }}</h3>
+        <table class="w-full caption-bottom text-sm">
+          <tbody>
+            <tr v-for="(column, index) in form.mapping.columns" :key="index" class="border-b last:border-0">
+              <td class="px-2 py-1 align-middle">{{ pathLabel(column.excel_path) }}</td>
+              <td class="px-2 py-1 align-middle">
+                <Input
+                  :model-value="column.db_column"
+                  list="db-columns"
+                  :placeholder="t('template.pickColumn')"
+                  @update:model-value="setColumn(index, $event)"
+                />
+              </td>
+              <td class="px-2 py-1 align-middle text-muted-foreground">
+                {{ suggestionByPath.get(pathKey(column.excel_path))?.score ?? "" }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
 
-          <TabsContent value="unpivot">
-            <UnpivotEditor
-              :model-value="form.mapping.unpivot"
-              :columns="dbColumns"
-              @update:model-value="setMapping({ unpivot: $event })"
-            />
-          </TabsContent>
-
-          <TabsContent value="strategy" class="space-y-4">
+    <!-- 右侧抽屉：配置项分组 -->
+    <Sheet v-model:open="drawerOpen">
+      <SheetContent class="w-[640px] overflow-y-auto sm:max-w-[640px]">
+        <SheetHeader>
+          <SheetTitle>{{ editing ? form.name : t("template.create") }}</SheetTitle>
+        </SheetHeader>
+        <div class="space-y-6 py-2">
+          <section class="space-y-3">
+            <h3 class="text-sm font-medium">{{ t("template.basicInfo") }}</h3>
             <div class="space-y-2">
-              <Label>{{ t("template.strategy") }}</Label>
-              <Select v-model="form.strategy">
+              <Label for="tpl-desc">{{ t("common.description") }}</Label>
+              <Input id="tpl-desc" v-model="form.description" />
+            </div>
+            <div class="space-y-2">
+              <Label>{{ t("datasource.title") }}</Label>
+              <Select v-model="datasourceIdStr">
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="APPEND">{{ t("strategy.APPEND") }}</SelectItem>
-                  <SelectItem value="UPSERT">{{ t("strategy.UPSERT") }}</SelectItem>
-                  <SelectItem value="REPLACE_SCOPE">{{ t("strategy.REPLACE_SCOPE") }}</SelectItem>
+                  <SelectItem v-for="item in datasources" :key="item.id" :value="String(item.id)">
+                    {{ item.name }}
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            <div class="space-y-2">
+              <Label>{{ t("template.target") }}</Label>
+              <Select :model-value="selectedTableIndex" @update:model-value="onTableIndex(String($event))">
+                <SelectTrigger>
+                  <SelectValue placeholder="—" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="(item, index) in tables"
+                    :key="`${item.schema}.${item.name}`"
+                    :value="String(index)"
+                  >
+                    {{ item.schema ? `${item.schema}.${item.name}` : item.name }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div class="grid grid-cols-3 gap-4">
+              <div class="space-y-2">
+                <Label for="tpl-sheet">{{ t("template.sheet") }}</Label>
+                <Input id="tpl-sheet" v-model="form.sheet" />
+              </div>
+              <div class="space-y-2">
+                <Label for="tpl-header-start">{{ t("template.headerStart") }}</Label>
+                <Input id="tpl-header-start" v-model.number="form.header_start_row" type="number" min="1" />
+              </div>
+              <div class="space-y-2">
+                <Label for="tpl-header-rows">{{ t("template.headerRows") }}</Label>
+                <Input id="tpl-header-rows" v-model.number="form.header_row_count" type="number" min="1" max="10" />
+              </div>
+            </div>
+          </section>
+
+          <Separator />
+
+          <section class="space-y-3">
+            <h3 class="text-sm font-medium">{{ t("template.strategy") }}</h3>
+            <Select v-model="form.strategy">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="APPEND">{{ t("strategy.APPEND") }}</SelectItem>
+                <SelectItem value="UPSERT">{{ t("strategy.UPSERT") }}</SelectItem>
+                <SelectItem value="REPLACE_SCOPE">{{ t("strategy.REPLACE_SCOPE") }}</SelectItem>
+              </SelectContent>
+            </Select>
             <p v-if="!dbColumns.length" class="text-sm text-muted-foreground">{{ t("template.noTable") }}</p>
             <template v-else>
               <div class="space-y-2">
@@ -434,31 +432,46 @@ const save = () => guarded(async () => {
                 </div>
               </div>
             </template>
-          </TabsContent>
+          </section>
 
-          <TabsContent value="rules">
-            <RuleOverridesEditor v-model="form.rule_overrides" :columns="dbColumns" />
-          </TabsContent>
+          <Separator />
 
-          <TabsContent value="synonyms">
-            <SynonymGroups :workspace-id="workspaceId" />
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-    </Card>
+          <section class="space-y-3">
+            <h3 class="text-sm font-medium">{{ t("template.constants") }}</h3>
+            <div v-for="(item, index) in form.mapping.constants" :key="index" class="flex gap-2">
+              <Input
+                :model-value="item.db_column"
+                list="db-columns"
+                :placeholder="t('template.pickColumn')"
+                @update:model-value="setConstant(index, { db_column: String($event) })"
+              />
+              <Input
+                :model-value="item.value"
+                :placeholder="t('common.value')"
+                @update:model-value="setConstant(index, { value: String($event) })"
+              />
+              <Button variant="outline" @click="setMapping({ constants: form.mapping.constants.filter((_, i) => i !== index) })">
+                {{ t("common.remove") }}
+              </Button>
+            </div>
+            <Button variant="outline" @click="setMapping({ constants: [...form.mapping.constants, { db_column: '', value: '' }] })">
+              {{ t("common.add") }}
+            </Button>
+          </section>
 
-    <Card>
-      <CardContent class="space-y-4 pt-6">
-        <Alert v-if="error" variant="destructive">
-          <AlertDescription>{{ error }}</AlertDescription>
-        </Alert>
-        <div class="flex gap-2">
-          <Button :disabled="saving" @click="save">{{ t("common.save") }}</Button>
-          <Button variant="outline" as-child>
-            <RouterLink to="/templates">{{ t("common.cancel") }}</RouterLink>
-          </Button>
+          <Separator />
+
+          <UnpivotEditor
+            :model-value="form.mapping.unpivot"
+            :columns="dbColumns"
+            @update:model-value="setMapping({ unpivot: $event })"
+          />
+
+          <RuleOverridesEditor v-model="form.rule_overrides" :columns="dbColumns" />
+
+          <SynonymGroups :workspace-id="workspaceId" />
         </div>
-      </CardContent>
-    </Card>
+      </SheetContent>
+    </Sheet>
   </div>
 </template>

@@ -25,6 +25,8 @@ export default {
     history: "导入记录", confirmDelete: "将删除约 {n} 行后写入，确认提交？",
     confirmScope: "将按 {scopes} 个范围删除目标表约 {n} 行后写入，确认提交？",
     confirmScopeTitle: "确认替换范围",
+    details: "详情", file: "文件", validation: "校验", noErrorItems: "暂无错误",
+    selectFile: "选择文件", noFile: "未选择文件",
     missingHeaders: "缺少的表头：{list}", template: "模板", cancel: "取消任务",
     retry: "重新执行", resolve: "人工核对", resolveWritten: "确认已写入",
     resolveNotWritten: "确认未写入", resolveConfirm: "确认把该任务标记为“{outcome}”？",
@@ -52,6 +54,7 @@ export default {
     sampleMeta: "工作表 {sheet} · {cols} 列 · {rows} 行数据",
     sampleHint: "上传样例文件后，这里会显示表头缩略图和前几行数据",
     previewMore: "还有 {n} 行未显示",
+    configure: "配置", uploadSample: "上传样例", mappingRow: "映射", noSampleFile: "未上传样例",
   },
   strategy: { APPEND: "仅追加", UPSERT: "存在则更新", REPLACE_SCOPE: "按范围替换" },
   datasource: {

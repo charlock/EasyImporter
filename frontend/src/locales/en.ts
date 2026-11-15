@@ -27,6 +27,8 @@ export default {
     confirmDelete: "About {n} rows will be deleted before writing. Continue?",
     confirmScope: "About {n} rows in {scopes} scopes will be deleted before writing. Continue?",
     confirmScopeTitle: "Confirm scope replacement",
+    details: "Details", file: "File", validation: "Validation", noErrorItems: "No errors",
+    selectFile: "Choose file", noFile: "No file chosen",
     missingHeaders: "Missing headers: {list}", template: "Template", cancel: "Cancel task",
     retry: "Run again", resolve: "Manual review", resolveWritten: "Confirm written",
     resolveNotWritten: "Confirm not written", resolveConfirm: "Mark this task as \"{outcome}\"?",
@@ -55,6 +57,7 @@ export default {
     sampleMeta: "Sheet {sheet} · {cols} columns · {rows} data rows",
     sampleHint: "Upload a sample file to see a thumbnail of its headers and the first data rows",
     previewMore: "{n} more rows not shown",
+    configure: "Configure", uploadSample: "Upload sample", mappingRow: "Mapping", noSampleFile: "No sample uploaded",
   },
   strategy: { APPEND: "Append only", UPSERT: "Upsert", REPLACE_SCOPE: "Replace by scope" },
   datasource: {

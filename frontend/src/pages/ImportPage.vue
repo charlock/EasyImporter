@@ -3,10 +3,9 @@ import { useVirtualizer } from "@tanstack/vue-virtual";
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
+import { FileSpreadsheet, PanelRight } from "@lucide/vue";
 
 import { api } from "@/api/client";
-import EmptyState from "@/components/EmptyState.vue";
-import PageHeader from "@/components/PageHeader.vue";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -19,7 +18,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -27,6 +25,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { gzipJsonl } from "@/features/excel/gzip";
 import { parseInWorker } from "@/features/excel/parse";
 import { pathLabel } from "@/features/header/tree";
@@ -34,6 +34,7 @@ import { applyMapping, missingHeaders, trimDataRows, type MappedRow } from "@/fe
 import { findDuplicateKeys, validateRow, type CellError, type DefaultApplied } from "@/features/rules/execute";
 import { buildGrid, errorCount, type GridColumn, type GridRow } from "@/features/grid/model";
 import { codeText, errorMessage } from "@/lib/errors";
+import { columnLetter } from "@/lib/utils";
 import type { ColumnRule, Template } from "@/lib/types";
 
 const props = defineProps<{ workspaceId: number | null }>();
@@ -57,6 +58,7 @@ const hiddenRows = ref(0);
 const editing = ref<{ index: number; key: string } | null>(null);
 const scroller = ref<HTMLElement | null>(null);
 const scopeConfirm = ref<{ estimated: number; scopes: number; resolve: (ok: boolean) => void } | null>(null);
+const drawerOpen = ref(false);
 
 // shadcn Select 只认字符串，模板 id 在此做 string ⇄ number 转换。
 const templateIdStr = computed({
@@ -88,6 +90,20 @@ const problems = computed(() => errorCount(rows.value));
 const canSubmit = computed(
   () => mapped.value.length > 0 && problems.value === 0 && !parsing.value && !submitting.value,
 );
+
+/** 抽屉里的校验清单：前 20 条错误（行号 · 列 · 错误）。 */
+const errorList = computed(() => {
+  const list: { rowNo: number; column: string; code: string }[] = [];
+  for (const row of rows.value) {
+    for (const [key, cell] of Object.entries(row.cells)) {
+      if (cell?.error) {
+        list.push({ rowNo: row.rowNo, column: key, code: cell.error.code });
+        if (list.length >= 20) return list;
+      }
+    }
+  }
+  return list;
+});
 
 const virtualizer = useVirtualizer(
   computed(() => ({
@@ -255,109 +271,182 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <PageHeader :title="t('import.title')">
-      <template #actions>
-        <Button variant="outline" as-child>
-          <RouterLink to="/imports">{{ t("import.history") }}</RouterLink>
-        </Button>
-      </template>
-    </PageHeader>
-
-    <Card>
-      <CardContent class="space-y-4 pt-6">
-        <div class="max-w-sm">
-          <Select v-model="templateIdStr">
-            <SelectTrigger>
-              <SelectValue :placeholder="t('import.pickTemplate')" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem v-for="item in templates" :key="item.id" :value="String(item.id)">
-                {{ item.name }}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <label
-          v-if="template"
-          class="grid cursor-pointer place-items-center rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground hover:border-muted-foreground"
-        >
-          <input type="file" accept=".xlsx" class="hidden" :disabled="parsing" @change="onFile" />
-          <span>{{ parsing ? t("import.parsing") : t("import.drop") }}</span>
+  <div class="space-y-4">
+    <!-- 顶部停靠栏：模板、文件、计数与操作放一行 -->
+    <div class="sticky top-14 z-30 -mx-4 flex items-center gap-2 overflow-x-auto border-b bg-background/95 px-4 py-2 backdrop-blur md:-mx-6 md:px-6">
+      <Select v-model="templateIdStr">
+        <SelectTrigger class="h-8 w-56 shrink-0">
+          <SelectValue :placeholder="t('import.pickTemplate')" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem v-for="item in templates" :key="item.id" :value="String(item.id)">
+            {{ item.name }}
+          </SelectItem>
+        </SelectContent>
+      </Select>
+      <span class="flex shrink-0 items-center gap-1 text-sm text-muted-foreground">
+        <FileSpreadsheet class="size-4" />
+        {{ sourceFile?.name ?? t("import.noFile") }}
+      </span>
+      <span v-if="rows.length" class="shrink-0 text-sm">
+        {{ mapped.length }} {{ t("import.rows") }} · {{ problems }} {{ t("import.errors") }}
+        <span class="text-muted-foreground">· {{ t("import.editHint") }}</span>
+      </span>
+      <span v-if="hiddenRows" class="shrink-0 text-sm text-muted-foreground">
+        {{ t("import.hiddenRows", { n: hiddenRows }) }}
+      </span>
+      <div class="min-w-2 flex-1" />
+      <Button variant="outline" size="sm" class="shrink-0" as-child>
+        <label class="cursor-pointer">
+          <input type="file" accept=".xlsx" class="hidden" :disabled="parsing || !template" @change="onFile" />
+          {{ t("import.selectFile") }}
         </label>
-        <p v-if="hiddenRows" class="text-sm text-muted-foreground">
-          {{ t("import.hiddenRows", { n: hiddenRows }) }}
-        </p>
-        <Alert v-if="error" variant="destructive">
-          <AlertDescription>{{ error }}</AlertDescription>
-        </Alert>
-      </CardContent>
-    </Card>
+      </Button>
+      <Button variant="outline" size="sm" class="shrink-0" @click="drawerOpen = true">
+        <PanelRight />{{ t("import.details") }}
+      </Button>
+      <Button size="sm" class="shrink-0" :disabled="!canSubmit" @click="submit">{{ t("import.submit") }}</Button>
+    </div>
 
-    <EmptyState v-if="!rows.length" :title="t('common.empty')" />
-    <Card v-else>
-      <CardContent class="pt-6">
-        <div class="mb-4 flex items-center justify-between">
-          <span class="text-sm">
-            {{ mapped.length }} {{ t("import.rows") }} · {{ problems }} {{ t("import.errors") }}
-            <span class="text-muted-foreground">· {{ t("import.editHint") }}</span>
-          </span>
-          <Button :disabled="!canSubmit" @click="submit">{{ t("import.submit") }}</Button>
+    <Alert v-if="error" variant="destructive">
+      <AlertDescription>{{ error }}</AlertDescription>
+    </Alert>
+
+    <!-- 主区域：识别后的工作表（Excel 样式虚拟网格） -->
+    <div v-if="!rows.length">
+      <label class="grid min-h-[320px] cursor-pointer place-items-center rounded-lg border border-dashed px-4 py-16 text-sm text-muted-foreground hover:border-muted-foreground">
+        <input type="file" accept=".xlsx" class="hidden" :disabled="parsing || !template" @change="onFile" />
+        <span>{{ parsing ? t("import.parsing") : t("import.drop") }}</span>
+      </label>
+    </div>
+    <div v-else ref="scroller" class="max-h-[calc(100vh-13rem)] min-h-[300px] overflow-auto rounded-lg border">
+      <table class="w-full border-separate border-spacing-0 text-xs">
+        <thead>
+          <tr>
+            <th class="sticky left-0 top-0 z-30 h-7 w-12 border-b border-r bg-muted px-1 text-center align-middle font-medium text-muted-foreground" />
+            <th
+              v-for="(_, index) in columns"
+              :key="`letter-${index}`"
+              class="sticky top-0 z-20 h-7 border-b border-r bg-muted px-2 text-center align-middle font-medium text-muted-foreground"
+            >
+              {{ columnLetter(index) }}
+            </th>
+          </tr>
+          <tr>
+            <th class="sticky left-0 top-7 z-30 h-8 w-12 border-b border-r bg-muted px-1 text-center align-middle font-medium text-muted-foreground">
+              {{ t("grid.rowNo") }}
+            </th>
+            <th
+              v-for="column in columns"
+              :key="column.key"
+              class="sticky top-7 z-20 h-8 border-b border-r bg-muted/70 px-2 text-left align-middle font-medium"
+            >
+              {{ column.label }}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="padTop" :style="{ height: `${padTop}px` }"><td :colspan="columns.length + 1" /></tr>
+          <tr
+            v-for="item in virtualRows"
+            :key="item.index"
+            :style="{ height: `${ROW_HEIGHT}px` }"
+          >
+            <td class="sticky left-0 z-10 w-12 border-b border-r bg-background px-1 py-1 text-center align-middle text-muted-foreground">
+              {{ rows[item.index].rowNo }}
+            </td>
+            <td
+              v-for="column in columns"
+              :key="column.key"
+              class="whitespace-nowrap border-b border-r px-2 py-1 align-middle"
+              :class="rows[item.index].cells[column.key]?.error ? 'bg-destructive/15' : ''"
+              :title="rows[item.index].cells[column.key]?.error
+                ? codeText(rows[item.index].cells[column.key]!.error!.code) : undefined"
+              @dblclick="startEdit(item.index, column.key)"
+            >
+              <input
+                v-if="editing?.index === item.index && editing.key === column.key"
+                class="cell-edit w-full min-w-20 rounded-md border border-input bg-background px-1 py-0.5 text-xs"
+                :value="rows[item.index].cells[column.key]?.value"
+                @blur="commitEdit"
+                @keydown.enter="($event.target as HTMLInputElement).blur()"
+                @keydown.esc="editing = null"
+              />
+              <span
+                v-else-if="rows[item.index].cells[column.key]?.defaultApplied"
+                class="text-muted-foreground"
+              >{{ t("grid.defaultHint", { value: rows[item.index].cells[column.key]!.defaultApplied!.value }) }}</span>
+              <template v-else>{{ rows[item.index].cells[column.key]?.value }}</template>
+            </td>
+          </tr>
+          <tr v-if="padBottom" :style="{ height: `${padBottom}px` }"><td :colspan="columns.length + 1" /></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 右侧抽屉：文件 / 模板 / 校验 -->
+    <Sheet v-model:open="drawerOpen">
+      <SheetContent class="w-[440px] overflow-y-auto sm:max-w-[440px]">
+        <SheetHeader>
+          <SheetTitle>{{ t("import.details") }}</SheetTitle>
+        </SheetHeader>
+        <div class="space-y-6 py-2">
+          <section class="space-y-2">
+            <h3 class="text-sm font-medium">{{ t("import.file") }}</h3>
+            <dl class="space-y-1 text-sm">
+              <div class="flex justify-between gap-4">
+                <dt class="shrink-0 text-muted-foreground">{{ t("common.name") }}</dt>
+                <dd class="truncate">{{ sourceFile?.name ?? "—" }}</dd>
+              </div>
+              <div class="flex justify-between">
+                <dt class="text-muted-foreground">{{ t("import.rows") }}</dt>
+                <dd>{{ mapped.length }}</dd>
+              </div>
+            </dl>
+            <p v-if="hiddenRows" class="text-sm text-muted-foreground">
+              {{ t("import.hiddenRows", { n: hiddenRows }) }}
+            </p>
+          </section>
+
+          <Separator />
+
+          <section class="space-y-2">
+            <h3 class="text-sm font-medium">{{ t("import.template") }}</h3>
+            <dl class="space-y-1 text-sm">
+              <div class="flex justify-between gap-4">
+                <dt class="shrink-0 text-muted-foreground">{{ t("common.name") }}</dt>
+                <dd class="truncate">{{ template?.name ?? "—" }}</dd>
+              </div>
+              <div class="flex justify-between gap-4">
+                <dt class="shrink-0 text-muted-foreground">{{ t("template.target") }}</dt>
+                <dd class="truncate">{{ template ? `${template.target_schema}.${template.target_table}` : "—" }}</dd>
+              </div>
+              <div class="flex justify-between">
+                <dt class="text-muted-foreground">{{ t("template.strategy") }}</dt>
+                <dd>{{ template ? t(`strategy.${template.strategy}`) : "—" }}</dd>
+              </div>
+              <div class="flex justify-between gap-4">
+                <dt class="shrink-0 text-muted-foreground">{{ t("template.businessKeys") }}</dt>
+                <dd class="truncate">{{ template?.business_keys.join(", ") || "—" }}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <Separator />
+
+          <section class="space-y-2">
+            <h3 class="text-sm font-medium">{{ t("import.validation") }}</h3>
+            <p class="text-sm">{{ problems }} {{ t("import.errors") }}</p>
+            <ul v-if="errorList.length" class="space-y-1 text-sm">
+              <li v-for="(item, i) in errorList" :key="i" class="text-destructive">
+                #{{ item.rowNo }} · {{ item.column }} · {{ codeText(item.code) }}
+              </li>
+            </ul>
+            <p v-else class="text-sm text-muted-foreground">{{ t("import.noErrorItems") }}</p>
+          </section>
         </div>
-        <div ref="scroller" class="max-h-[60vh] overflow-auto">
-          <table class="w-full caption-bottom text-sm">
-            <thead>
-              <tr class="border-b">
-                <th class="sticky top-0 z-10 h-9 bg-background px-2 text-left align-middle font-medium text-muted-foreground">{{ t("grid.rowNo") }}</th>
-                <th
-                  v-for="column in columns"
-                  :key="column.key"
-                  class="sticky top-0 z-10 h-9 bg-background px-2 text-left align-middle font-medium text-muted-foreground"
-                >
-                  {{ column.label }}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="padTop" :style="{ height: `${padTop}px` }"><td :colspan="columns.length + 1" /></tr>
-              <tr
-                v-for="item in virtualRows"
-                :key="item.index"
-                :style="{ height: `${ROW_HEIGHT}px` }"
-                class="border-b"
-              >
-                <td class="px-2 py-1 align-middle">{{ rows[item.index].rowNo }}</td>
-                <td
-                  v-for="column in columns"
-                  :key="column.key"
-                  class="whitespace-nowrap px-2 py-1 align-middle"
-                  :class="rows[item.index].cells[column.key]?.error ? 'bg-destructive/15' : ''"
-                  :title="rows[item.index].cells[column.key]?.error
-                    ? codeText(rows[item.index].cells[column.key]!.error!.code) : undefined"
-                  @dblclick="startEdit(item.index, column.key)"
-                >
-                  <input
-                    v-if="editing?.index === item.index && editing.key === column.key"
-                    class="cell-edit w-full min-w-20 rounded-md border border-input bg-background px-1 py-0.5 text-sm"
-                    :value="rows[item.index].cells[column.key]?.value"
-                    @blur="commitEdit"
-                    @keydown.enter="($event.target as HTMLInputElement).blur()"
-                    @keydown.esc="editing = null"
-                  />
-                  <span
-                    v-else-if="rows[item.index].cells[column.key]?.defaultApplied"
-                    class="text-muted-foreground"
-                  >{{ t("grid.defaultHint", { value: rows[item.index].cells[column.key]!.defaultApplied!.value }) }}</span>
-                  <template v-else>{{ rows[item.index].cells[column.key]?.value }}</template>
-                </td>
-              </tr>
-              <tr v-if="padBottom" :style="{ height: `${padBottom}px` }"><td :colspan="columns.length + 1" /></tr>
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
+      </SheetContent>
+    </Sheet>
 
     <AlertDialog :open="scopeConfirm !== null" @update:open="(open) => { if (!open) closeScope(false); }">
       <AlertDialogContent>

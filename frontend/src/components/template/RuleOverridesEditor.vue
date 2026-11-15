@@ -44,7 +44,7 @@ function setMaxLength(index: number, raw: string | number): void {
 <template>
   <Card>
     <CardHeader><CardTitle>{{ t("template.rules") }}</CardTitle></CardHeader>
-    <CardContent class="space-y-2">
+    <CardContent class="space-y-2 overflow-x-auto">
       <table v-if="modelValue.length" class="w-full caption-bottom text-sm">
         <thead>
           <tr class="border-b">

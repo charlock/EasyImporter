@@ -51,6 +51,10 @@ export default {
     rulePattern: "Pattern", ruleDefault: "Default", ruleMaxLength: "Max length",
     synonymHint: "Separate synonyms in one group with commas; used by auto-matching", sample: "Sample file",
     pickColumn: "Pick a column", noTable: "Choose a datasource and target table first", archived: "Archived",
+    basicInfo: "Basic info", uploadRecognize: "Template upload & recognition", importRules: "Import rules",
+    sampleMeta: "Sheet {sheet} · {cols} columns · {rows} data rows",
+    sampleHint: "Upload a sample file to see a thumbnail of its headers and the first data rows",
+    previewMore: "{n} more rows not shown",
   },
   strategy: { APPEND: "Append only", UPSERT: "Upsert", REPLACE_SCOPE: "Replace by scope" },
   datasource: {

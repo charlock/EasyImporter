@@ -5,6 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import { api } from "@/api/client";
 import RuleOverridesEditor from "@/components/template/RuleOverridesEditor.vue";
+import SamplePreview from "@/components/template/SamplePreview.vue";
 import SynonymGroups from "@/components/template/SynonymGroups.vue";
 import UnpivotEditor from "@/components/template/UnpivotEditor.vue";
 import PageHeader from "@/components/PageHeader.vue";
@@ -21,7 +22,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { parseWorkbook } from "@/features/excel/parse";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { parseWorkbook, type ParsedSheet } from "@/features/excel/parse";
 import { pathLabel } from "@/features/header/tree";
 import { errorMessage } from "@/lib/errors";
 import type {
@@ -56,6 +58,8 @@ const schema = ref<TableSchema | null>(null);
 const suggestions = ref<Suggestion[]>([]);
 const error = ref("");
 const saving = ref(false);
+/** 本次上传的样例解析结果，用于缩略图预览；切模板时清空。 */
+const sample = ref<ParsedSheet | null>(null);
 
 const form = ref<TemplateForm>({
   name: "",
@@ -120,6 +124,7 @@ watch(
   () => route.params.id,
   (id) => guarded(async () => {
     if (id === undefined || props.workspaceId == null) return;
+    sample.value = null;
     const template = await api.get<Template>(`/workspaces/${props.workspaceId}/templates/${id}`);
     form.value = {
       name: template.name,
@@ -173,6 +178,7 @@ const onSample = (event: Event) => guarded(async () => {
     headerStartRow: form.value.header_start_row - 1,
     headerRowCount: form.value.header_row_count,
   });
+  sample.value = parsed;
   const paths = parsed.header.leaves.map((leaf) => leaf.path);
   // 还没选表时不能匹配，清掉上一次的建议，避免分数对到别的列上。
   suggestions.value = form.value.datasource_id && form.value.target_table
@@ -249,8 +255,10 @@ const save = () => guarded(async () => {
       </option>
     </datalist>
 
+    <!-- 一、基础信息 -->
     <Card>
-      <CardContent class="space-y-4 pt-6">
+      <CardHeader><CardTitle>{{ t("template.basicInfo") }}</CardTitle></CardHeader>
+      <CardContent class="space-y-4">
         <div class="space-y-2">
           <Label for="tpl-name">{{ t("common.name") }}</Label>
           <Input id="tpl-name" v-model="form.name" />
@@ -303,114 +311,141 @@ const save = () => guarded(async () => {
             <Input id="tpl-header-rows" v-model.number="form.header_row_count" type="number" min="1" max="10" />
           </div>
         </div>
+      </CardContent>
+    </Card>
+
+    <!-- 二、模版上传识别 -->
+    <Card>
+      <CardHeader><CardTitle>{{ t("template.uploadRecognize") }}</CardTitle></CardHeader>
+      <CardContent class="space-y-4">
         <label class="grid cursor-pointer place-items-center rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground hover:border-muted-foreground">
           <input type="file" accept=".xlsx" class="hidden" @change="onSample" />
           <span>{{ t("template.sample") }} · {{ t("import.drop") }}</span>
         </label>
+        <SamplePreview v-if="sample" :sample="sample" />
+        <p v-if="!sample && !form.mapping.columns.length" class="text-sm text-muted-foreground">
+          {{ t("template.sampleHint") }}
+        </p>
+        <div v-if="form.mapping.columns.length">
+          <h3 class="mb-2 text-sm font-medium">{{ t("template.mapping") }}</h3>
+          <table class="w-full caption-bottom text-sm">
+            <tbody>
+              <tr v-for="(column, index) in form.mapping.columns" :key="index" class="border-b last:border-0">
+                <td class="px-2 py-1 align-middle">{{ pathLabel(column.excel_path) }}</td>
+                <td class="px-2 py-1 align-middle">
+                  <Input
+                    :model-value="column.db_column"
+                    list="db-columns"
+                    :placeholder="t('template.pickColumn')"
+                    @update:model-value="setColumn(index, $event)"
+                  />
+                </td>
+                <td class="px-2 py-1 align-middle text-muted-foreground">
+                  {{ suggestionByPath.get(pathKey(column.excel_path))?.score ?? "" }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </CardContent>
     </Card>
 
-    <Card v-if="form.mapping.columns.length">
-      <CardHeader><CardTitle>{{ t("template.mapping") }}</CardTitle></CardHeader>
+    <!-- 三、导入规则 -->
+    <Card>
+      <CardHeader><CardTitle>{{ t("template.importRules") }}</CardTitle></CardHeader>
       <CardContent>
-        <table class="w-full caption-bottom text-sm">
-          <tbody>
-            <tr v-for="(column, index) in form.mapping.columns" :key="index" class="border-b last:border-0">
-              <td class="px-2 py-1 align-middle">{{ pathLabel(column.excel_path) }}</td>
-              <td class="px-2 py-1 align-middle">
-                <Input
-                  :model-value="column.db_column"
-                  list="db-columns"
-                  :placeholder="t('template.pickColumn')"
-                  @update:model-value="setColumn(index, $event)"
-                />
-              </td>
-              <td class="px-2 py-1 align-middle text-muted-foreground">
-                {{ suggestionByPath.get(pathKey(column.excel_path))?.score ?? "" }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </CardContent>
-    </Card>
+        <Tabs default-value="constants">
+          <TabsList>
+            <TabsTrigger value="constants">{{ t("template.constants") }}</TabsTrigger>
+            <TabsTrigger value="unpivot">{{ t("template.unpivot") }}</TabsTrigger>
+            <TabsTrigger value="strategy">{{ t("template.strategy") }}</TabsTrigger>
+            <TabsTrigger value="rules">{{ t("template.rules") }}</TabsTrigger>
+            <TabsTrigger value="synonyms">{{ t("template.synonyms") }}</TabsTrigger>
+          </TabsList>
 
-    <Card>
-      <CardHeader><CardTitle>{{ t("template.constants") }}</CardTitle></CardHeader>
-      <CardContent class="space-y-2">
-        <div v-for="(item, index) in form.mapping.constants" :key="index" class="flex gap-2">
-          <Input
-            :model-value="item.db_column"
-            list="db-columns"
-            :placeholder="t('template.pickColumn')"
-            @update:model-value="setConstant(index, { db_column: String($event) })"
-          />
-          <Input
-            :model-value="item.value"
-            :placeholder="t('common.value')"
-            @update:model-value="setConstant(index, { value: String($event) })"
-          />
-          <Button variant="outline" @click="setMapping({ constants: form.mapping.constants.filter((_, i) => i !== index) })">
-            {{ t("common.remove") }}
-          </Button>
-        </div>
-        <Button variant="outline" @click="setMapping({ constants: [...form.mapping.constants, { db_column: '', value: '' }] })">
-          {{ t("common.add") }}
-        </Button>
-      </CardContent>
-    </Card>
-
-    <UnpivotEditor
-      :model-value="form.mapping.unpivot"
-      :columns="dbColumns"
-      @update:model-value="setMapping({ unpivot: $event })"
-    />
-
-    <Card>
-      <CardContent class="space-y-4 pt-6">
-        <div class="space-y-2">
-          <Label>{{ t("template.strategy") }}</Label>
-          <Select v-model="form.strategy">
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="APPEND">{{ t("strategy.APPEND") }}</SelectItem>
-              <SelectItem value="UPSERT">{{ t("strategy.UPSERT") }}</SelectItem>
-              <SelectItem value="REPLACE_SCOPE">{{ t("strategy.REPLACE_SCOPE") }}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <p v-if="!dbColumns.length" class="text-sm text-muted-foreground">{{ t("template.noTable") }}</p>
-        <template v-else>
-          <div class="space-y-2">
-            <Label>{{ t("template.businessKeys") }}</Label>
-            <div class="flex flex-wrap gap-x-4 gap-y-2">
-              <label v-for="column in dbColumns" :key="column" class="flex cursor-pointer items-center gap-2 text-sm">
-                <Checkbox
-                  :model-value="form.business_keys.includes(column)"
-                  @update:model-value="toggleIn('business_keys', column, $event === true)"
-                />
-                <span>{{ column }}</span>
-              </label>
+          <TabsContent value="constants" class="space-y-2">
+            <div v-for="(item, index) in form.mapping.constants" :key="index" class="flex gap-2">
+              <Input
+                :model-value="item.db_column"
+                list="db-columns"
+                :placeholder="t('template.pickColumn')"
+                @update:model-value="setConstant(index, { db_column: String($event) })"
+              />
+              <Input
+                :model-value="item.value"
+                :placeholder="t('common.value')"
+                @update:model-value="setConstant(index, { value: String($event) })"
+              />
+              <Button variant="outline" @click="setMapping({ constants: form.mapping.constants.filter((_, i) => i !== index) })">
+                {{ t("common.remove") }}
+              </Button>
             </div>
-          </div>
-          <div v-if="form.strategy === 'REPLACE_SCOPE'" class="space-y-2">
-            <Label>{{ t("template.scopeColumns") }}</Label>
-            <div class="flex flex-wrap gap-x-4 gap-y-2">
-              <label v-for="column in dbColumns" :key="column" class="flex cursor-pointer items-center gap-2 text-sm">
-                <Checkbox
-                  :model-value="form.scope_columns.includes(column)"
-                  @update:model-value="toggleIn('scope_columns', column, $event === true)"
-                />
-                <span>{{ column }}</span>
-              </label>
+            <Button variant="outline" @click="setMapping({ constants: [...form.mapping.constants, { db_column: '', value: '' }] })">
+              {{ t("common.add") }}
+            </Button>
+          </TabsContent>
+
+          <TabsContent value="unpivot">
+            <UnpivotEditor
+              :model-value="form.mapping.unpivot"
+              :columns="dbColumns"
+              @update:model-value="setMapping({ unpivot: $event })"
+            />
+          </TabsContent>
+
+          <TabsContent value="strategy" class="space-y-4">
+            <div class="space-y-2">
+              <Label>{{ t("template.strategy") }}</Label>
+              <Select v-model="form.strategy">
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="APPEND">{{ t("strategy.APPEND") }}</SelectItem>
+                  <SelectItem value="UPSERT">{{ t("strategy.UPSERT") }}</SelectItem>
+                  <SelectItem value="REPLACE_SCOPE">{{ t("strategy.REPLACE_SCOPE") }}</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-          </div>
-        </template>
+            <p v-if="!dbColumns.length" class="text-sm text-muted-foreground">{{ t("template.noTable") }}</p>
+            <template v-else>
+              <div class="space-y-2">
+                <Label>{{ t("template.businessKeys") }}</Label>
+                <div class="flex flex-wrap gap-x-4 gap-y-2">
+                  <label v-for="column in dbColumns" :key="column" class="flex cursor-pointer items-center gap-2 text-sm">
+                    <Checkbox
+                      :model-value="form.business_keys.includes(column)"
+                      @update:model-value="toggleIn('business_keys', column, $event === true)"
+                    />
+                    <span>{{ column }}</span>
+                  </label>
+                </div>
+              </div>
+              <div v-if="form.strategy === 'REPLACE_SCOPE'" class="space-y-2">
+                <Label>{{ t("template.scopeColumns") }}</Label>
+                <div class="flex flex-wrap gap-x-4 gap-y-2">
+                  <label v-for="column in dbColumns" :key="column" class="flex cursor-pointer items-center gap-2 text-sm">
+                    <Checkbox
+                      :model-value="form.scope_columns.includes(column)"
+                      @update:model-value="toggleIn('scope_columns', column, $event === true)"
+                    />
+                    <span>{{ column }}</span>
+                  </label>
+                </div>
+              </div>
+            </template>
+          </TabsContent>
+
+          <TabsContent value="rules">
+            <RuleOverridesEditor v-model="form.rule_overrides" :columns="dbColumns" />
+          </TabsContent>
+
+          <TabsContent value="synonyms">
+            <SynonymGroups :workspace-id="workspaceId" />
+          </TabsContent>
+        </Tabs>
       </CardContent>
     </Card>
-
-    <RuleOverridesEditor v-model="form.rule_overrides" :columns="dbColumns" />
 
     <Card>
       <CardContent class="space-y-4 pt-6">
@@ -425,7 +460,5 @@ const save = () => guarded(async () => {
         </div>
       </CardContent>
     </Card>
-
-    <SynonymGroups :workspace-id="workspaceId" />
   </div>
 </template>

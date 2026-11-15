@@ -48,6 +48,10 @@ export default {
     rulePattern: "正则", ruleDefault: "默认值", ruleMaxLength: "最大长度",
     synonymHint: "一组同义词用逗号分隔，保存后用于自动匹配", sample: "样例文件",
     pickColumn: "选择列", noTable: "先选择数据源和目标表", archived: "已归档",
+    basicInfo: "基础信息", uploadRecognize: "模版上传识别", importRules: "导入规则",
+    sampleMeta: "工作表 {sheet} · {cols} 列 · {rows} 行数据",
+    sampleHint: "上传样例文件后，这里会显示表头缩略图和前几行数据",
+    previewMore: "还有 {n} 行未显示",
   },
   strategy: { APPEND: "仅追加", UPSERT: "存在则更新", REPLACE_SCOPE: "按范围替换" },
   datasource: {

@@ -59,6 +59,7 @@ export default {
     dataStartRow: "数据开始行", detectHeader: "自动探测", bringFromSelection: "从选中行带入",
     selectionRow: "已选中第 {n} 行", selectionColumns: "已选中 {n} 列",
     onlySelectedColumns: "仅显示选中列", rematch: "重新匹配", restore: "恢复",
+    excelColumn: "Excel 列", targetColumn: "目标字段", score: "分数",
     stateUnselected: "未选择", stateViewing: "查看", stateNew: "新建草稿", stateEditing: "编辑中",
     selectTemplate: "选择模板…", newTemplateItem: "新建模版…",
     discardConfirmTitle: "放弃未保存的修改？", discardConfirm: "切换模板将丢弃当前未保存的修改。",

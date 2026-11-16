@@ -121,12 +121,12 @@
       <input type="file" accept=".xlsx" class="hidden" @change="onSample" />
     </label>
     <div v-if="form.mapping.columns.length">
-      <h2 class="mb-2 text-sm font-medium">{{ t("template.mapping") }}</h2>
+      <h2 class="mb-3 text-sm font-medium">{{ t("template.mapping") }}</h2>
       <table class="w-full text-sm">
         <tbody>
           <tr v-for="(column, index) in form.mapping.columns" :key="pathKey(column.excel_path)" class="border-b">
-            <td class="py-1 pr-2">{{ pathLabel(column.excel_path) }}</td>
-            <td class="py-1 pr-2">
+            <td class="py-1.5 pr-2">{{ pathLabel(column.excel_path) }}</td>
+            <td class="py-1.5 pr-2">
               <Input
                 class="h-7"
                 :model-value="column.db_column"
@@ -136,7 +136,7 @@
                 @update:model-value="(value) => setColumn(index, String(value))"
               />
             </td>
-            <td class="py-1 text-muted-foreground">
+            <td class="py-1.5 text-muted-foreground">
               {{ suggestionScores.get(pathKey(column.excel_path)) ?? "—" }}
             </td>
           </tr>
@@ -157,17 +157,17 @@
   <Sheet :modal="false" :open="drawerOpen" @update:open="(value) => (drawerOpen = value)">
     <SheetContent
       side="right"
-      class="w-full overflow-y-auto sm:max-w-[640px]"
+      class="w-full overflow-y-auto p-5 sm:max-w-[640px]"
       style="top: calc(3.5rem + 1.5rem + 53px); z-index: 20; height: auto"
       @pointer-down-outside="(event) => event.preventDefault()"
       @focus-outside="(event) => event.preventDefault()"
     >
-      <SheetHeader>
+      <SheetHeader class="border-b pb-4">
         <SheetTitle>{{ form.name || t("template.create") }}</SheetTitle>
       </SheetHeader>
       <div
         v-if="pendingRowFill != null && activeTab !== 'start-row' && pageModel.state !== 'S1'"
-        class="mt-4 flex items-center justify-between rounded-md bg-accent px-3 py-2 text-sm"
+        class="flex items-center justify-between rounded-md bg-accent px-3 py-2.5 text-sm"
       >
         <span>{{ t("template.selectionRow", { n: pendingRowFill }) }}</span>
         <Button size="sm" variant="outline" @click="applyAndGoToStartRow">
@@ -175,19 +175,19 @@
         </Button>
       </div>
 
-      <div class="mt-4 space-y-4" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
+      <div class="space-y-5" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
         <section>
-          <h3 class="mb-2 text-sm font-medium">{{ t("template.basicInfo") }}</h3>
-          <div class="grid grid-cols-2 gap-2">
-            <div>
+          <h3 class="mb-3 text-sm font-medium">{{ t("template.basicInfo") }}</h3>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="space-y-1.5">
               <Label>{{ t("common.name") }}</Label>
               <Input v-model="form.name" />
             </div>
-            <div>
+            <div class="space-y-1.5">
               <Label>{{ t("common.description") }}</Label>
               <Input v-model="form.description" />
             </div>
-            <div>
+            <div class="space-y-1.5">
               <Label>{{ t("datasource.title") }}</Label>
               <Select v-model="datasourceIdStr">
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -198,7 +198,7 @@
                 </SelectContent>
               </Select>
             </div>
-            <div>
+            <div class="space-y-1.5">
               <Label>{{ t("template.target") }}</Label>
               <Select :model-value="targetSelectValue" @update:model-value="onTargetSelect">
                 <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
@@ -212,8 +212,8 @@
               </Select>
             </div>
           </div>
-          <div v-if="autoTableMode" class="mt-2 space-y-2 rounded-md border p-3">
-            <div>
+          <div v-if="autoTableMode" class="mt-3 space-y-3 rounded-md border bg-muted/40 p-4">
+            <div class="space-y-1.5">
               <Label>{{ t("template.autoTableName") }}</Label>
               <Input v-model="autoTableName" />
             </div>
@@ -222,8 +222,8 @@
               {{ t("template.previewDdl") }}
             </Button>
           </div>
-          <div class="mt-2 grid grid-cols-2 gap-2">
-            <div>
+          <div class="mt-3 grid grid-cols-2 gap-3">
+            <div class="space-y-1.5">
               <Label>{{ t("template.sheet") }}</Label>
               <Input v-model="form.sheet" />
             </div>
@@ -233,7 +233,7 @@
         <Separator />
 
         <section>
-          <h3 class="mb-2 text-sm font-medium">{{ t("template.strategy") }}</h3>
+          <h3 class="mb-3 text-sm font-medium">{{ t("template.strategy") }}</h3>
           <Select v-model="form.strategy">
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -242,9 +242,9 @@
               <SelectItem value="REPLACE_SCOPE">{{ t("strategy.REPLACE_SCOPE") }}</SelectItem>
             </SelectContent>
           </Select>
-          <div class="mt-2">
+          <div class="mt-3 space-y-1.5">
             <Label>{{ t("template.businessKeys") }}</Label>
-            <div class="mt-1 flex flex-wrap gap-2">
+            <div class="flex flex-wrap gap-2">
               <label v-for="column in dbColumns" :key="column" class="flex items-center gap-1 text-sm">
                 <Checkbox
                   :model-value="form.business_keys.includes(column)"
@@ -254,9 +254,9 @@
               </label>
             </div>
           </div>
-          <div v-if="form.strategy === 'REPLACE_SCOPE'" class="mt-2">
+          <div v-if="form.strategy === 'REPLACE_SCOPE'" class="mt-3 space-y-1.5">
             <Label>{{ t("template.scopeColumns") }}</Label>
-            <div class="mt-1 flex flex-wrap gap-2">
+            <div class="flex flex-wrap gap-2">
               <label v-for="column in dbColumns" :key="column" class="flex items-center gap-1 text-sm">
                 <Checkbox
                   :model-value="form.scope_columns.includes(column)"
@@ -266,13 +266,13 @@
               </label>
             </div>
           </div>
-          <p v-if="form.strategy === 'UPSERT' && !form.business_keys.length" class="mt-1 text-xs text-muted-foreground">
+          <p v-if="form.strategy === 'UPSERT' && !form.business_keys.length" class="mt-2 text-xs text-muted-foreground">
             {{ t("template.upsertNeedsKeys") }}
           </p>
         </section>
       </div>
 
-      <Separator class="my-4" />
+      <Separator />
 
       <Tabs v-model="activeTab" class="w-full">
         <TabsList class="grid w-full grid-cols-4">
@@ -282,18 +282,18 @@
           <TabsTrigger value="synonyms">{{ t("template.synonyms") }}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="start-row">
-          <div class="space-y-3" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
-            <div class="grid grid-cols-3 gap-2">
-              <div>
+        <TabsContent value="start-row" class="pt-4">
+          <div class="space-y-4" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
+            <div class="grid grid-cols-3 gap-3">
+              <div class="space-y-1.5">
                 <Label>{{ t("template.headerStart") }}</Label>
                 <Input v-model.number="form.header_start_row" type="number" min="1" />
               </div>
-              <div>
+              <div class="space-y-1.5">
                 <Label>{{ t("template.headerRows") }}</Label>
                 <Input v-model.number="form.header_row_count" type="number" min="1" max="10" />
               </div>
-              <div>
+              <div class="space-y-1.5">
                 <Label>{{ t("template.dataStartRow") }}</Label>
                 <Input v-model.number="dataStartRow" type="number" min="1" />
               </div>
@@ -318,8 +318,8 @@
           </div>
         </TabsContent>
 
-        <TabsContent value="mapping">
-          <div class="space-y-3" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
+        <TabsContent value="mapping" class="pt-4">
+          <div class="space-y-4" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
             <div v-if="!sample" class="text-sm text-muted-foreground">
               {{ t("template.noSampleForMapping") }}
             </div>
@@ -337,6 +337,13 @@
                 </label>
               </div>
               <table class="w-full text-sm">
+                <thead>
+                  <tr class="border-b text-xs text-muted-foreground">
+                    <th class="pb-1.5 pr-2 text-left font-medium">{{ t("template.excelColumn") }}</th>
+                    <th class="pb-1.5 pr-2 text-left font-medium">{{ t("template.targetColumn") }}</th>
+                    <th class="pb-1.5 text-left font-medium">{{ t("template.score") }}</th>
+                  </tr>
+                </thead>
                 <tbody>
                   <tr
                     v-for="row in mappingRows"
@@ -344,8 +351,8 @@
                     class="border-b"
                     :class="selectedPathKeys.has(pathKey(row.column.excel_path)) ? 'bg-accent/60' : ''"
                   >
-                    <td class="py-1 pr-2">{{ pathLabel(row.column.excel_path) }}</td>
-                    <td class="py-1 pr-2">
+                    <td class="py-1.5 pr-2">{{ pathLabel(row.column.excel_path) }}</td>
+                    <td class="py-1.5 pr-2">
                       <Input
                         class="h-7"
                         :model-value="row.column.db_column"
@@ -354,7 +361,7 @@
                         @update:model-value="(value) => setColumn(row.index, String(value))"
                       />
                     </td>
-                    <td class="py-1 text-muted-foreground">
+                    <td class="py-1.5 text-muted-foreground">
                       {{ suggestionScores.get(pathKey(row.column.excel_path)) ?? "—" }}
                     </td>
                   </tr>
@@ -365,11 +372,11 @@
               </p>
             </template>
             <div>
-              <h3 class="mb-2 text-sm font-medium">{{ t("template.constants") }}</h3>
+              <h3 class="mb-3 text-sm font-medium">{{ t("template.constants") }}</h3>
               <div
                 v-for="(constant, index) in form.mapping.constants"
                 :key="index"
-                class="mb-1 grid grid-cols-[1fr_1fr_auto] items-center gap-2"
+                class="mb-2 grid grid-cols-[1fr_1fr_auto] items-center gap-2"
               >
                 <Input
                   :model-value="constant.db_column"
@@ -387,14 +394,14 @@
               <Button variant="outline" size="sm" @click="addConstant">{{ t("common.add") }}</Button>
             </div>
             <div>
-              <h3 class="mb-2 text-sm font-medium">{{ t("template.unpivot") }}</h3>
+              <h3 class="mb-3 text-sm font-medium">{{ t("template.unpivot") }}</h3>
               <UnpivotEditor v-model="form.mapping.unpivot" :columns="dbColumns" />
             </div>
           </div>
         </TabsContent>
 
-        <TabsContent value="rules">
-          <div class="space-y-3" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
+        <TabsContent value="rules" class="pt-4">
+          <div class="space-y-4" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
             <p v-if="activeLeafPathKey" class="text-xs text-muted-foreground">
               {{ t("template.selectedColumn") }}：{{ pathLabel(activeLeafPathKey.split("\u0000")) }}
               <span v-if="activeDbColumn"> → {{ activeDbColumn }}</span>
@@ -403,8 +410,8 @@
           </div>
         </TabsContent>
 
-        <TabsContent value="synonyms">
-          <div class="space-y-3" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
+        <TabsContent value="synonyms" class="pt-4">
+          <div class="space-y-4" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
             <p v-if="activeLeafPathKey" class="text-xs text-muted-foreground">
               {{ t("template.selectedColumn") }}：{{ pathLabel(activeLeafPathKey.split("\u0000")) }}
               <span v-if="activeDbColumn"> → {{ activeDbColumn }}</span>
@@ -423,12 +430,12 @@
         <DialogTitle>{{ t("template.createTableTitle") }}</DialogTitle>
         <DialogDescription>{{ autoTableName }}</DialogDescription>
       </DialogHeader>
-      <div class="space-y-3">
+      <div class="space-y-4">
         <table class="w-full text-sm">
           <tbody>
             <tr v-for="column in inferredColumns" :key="column.db_column" class="border-b">
-              <td class="py-1 pr-2">{{ column.db_column }}</td>
-              <td class="py-1 pr-2">{{ column.db_type }}</td>
+              <td class="py-1.5 pr-2">{{ column.db_column }}</td>
+              <td class="py-1.5 pr-2">{{ column.db_type }}</td>
               <td class="py-1">{{ column.nullable ? t("common.yes") : t("common.no") }}</td>
             </tr>
           </tbody>

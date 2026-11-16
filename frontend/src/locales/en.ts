@@ -62,6 +62,7 @@ export default {
     dataStartRow: "Data start row", detectHeader: "Auto-detect", bringFromSelection: "Use selected row",
     selectionRow: "Selected row {n}", selectionColumns: "Selected {n} columns",
     onlySelectedColumns: "Only selected columns", rematch: "Re-match", restore: "Restore",
+    excelColumn: "Excel column", targetColumn: "Target field", score: "Score",
     stateUnselected: "Not selected", stateViewing: "Viewing", stateNew: "New draft", stateEditing: "Editing",
     selectTemplate: "Select a template…", newTemplateItem: "New template…",
     discardConfirmTitle: "Discard unsaved changes?", discardConfirm: "Switching templates will discard your unsaved changes.",

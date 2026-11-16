@@ -190,7 +190,7 @@
             <div class="space-y-1.5">
               <Label>{{ t("datasource.title") }}</Label>
               <Select v-model="datasourceIdStr">
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger class="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem v-for="source in datasources" :key="source.id" :value="String(source.id)">
                     {{ source.name }}
@@ -201,7 +201,7 @@
             <div class="space-y-1.5">
               <Label>{{ t("template.target") }}</Label>
               <Select :model-value="targetSelectValue" @update:model-value="onTargetSelect">
-                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectTrigger class="w-full"><SelectValue placeholder="—" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem v-for="(table, index) in tables" :key="table.name" :value="String(index)">
                     {{ table.schema ? `${table.schema}.${table.name}` : table.name }}
@@ -235,7 +235,7 @@
         <section>
           <h3 class="mb-3 text-sm font-medium">{{ t("template.strategy") }}</h3>
           <Select v-model="form.strategy">
-            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectTrigger class="w-full"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="APPEND">{{ t("strategy.APPEND") }}</SelectItem>
               <SelectItem value="UPSERT">{{ t("strategy.UPSERT") }}</SelectItem>

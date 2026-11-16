@@ -41,7 +41,10 @@
   --surface: var(--card);
   --text: var(--foreground);
   --line: var(--border);
-  --accent: var(--primary);
+  /* 注意：不要把 --accent 覆盖为 --primary（2026-11-16 已移除该覆盖）。
+     旧版 base.css 里 --accent 曾表示品牌主色，但 shadcn 组件用 --accent 作浅灰
+     悬停底色（focus:bg-accent 等）；覆盖后下拉项/幽灵按钮悬停会变成近黑底 + 深色字。
+     参考项目 next-shadcn-admin-dashboard 的 :root 未覆盖 --accent。 */
   --accent-text: var(--primary-foreground);
   --danger: var(--destructive);
   --ok: oklch(0.6 0.15 150);
@@ -85,7 +88,7 @@
   --surface: var(--card);
   --text: var(--foreground);
   --line: var(--border);
-  --accent: var(--primary);
+  /* --accent 不覆盖为 --primary（同上，见 :root 注释）。 */
   --accent-text: var(--primary-foreground);
   --danger: var(--destructive);
   --ok: oklch(0.72 0.15 150);

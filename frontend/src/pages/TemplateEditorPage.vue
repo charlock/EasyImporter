@@ -1,8 +1,6 @@
 <template>
   <!-- 停靠栏：模板下拉 + 新建 + 样例 chip + 状态徽章 + 快速导入 + 上传 + 编辑/配置/取消/保存 -->
-  <div
-    class="sticky top-14 z-30 -mx-4 md:-mx-6 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b px-4 md:px-6 py-2 flex flex-wrap items-center gap-2"
-  >
+  <DockBar>
     <Select :model-value="templateSelectValue" @update:model-value="onTemplateSelect">
       <SelectTrigger class="w-56 h-8">
         <SelectValue :placeholder="t('template.selectTemplate')" />
@@ -89,7 +87,7 @@
     <Button size="sm" :disabled="!buttonStates.save" :title="saveDisabledReason" @click="saveTemplate">
       {{ t("common.save") }}
     </Button>
-  </div>
+  </DockBar>
 
   <Alert v-if="error" variant="destructive" class="mt-4">
     <AlertDescription>{{ error }}</AlertDescription>
@@ -148,23 +146,9 @@
     </div>
   </div>
 
-  <!-- 设定窗：非模态（:modal="false"），以便开着抽屉时仍能在 Viewer 里点选；reka 在非模态下不渲染遮罩。
-       注意：Sheet 默认 fixed inset-y-0 z-50，会盖住 AppShell 头部右侧与停靠栏右侧的按钮
-       （保存/取消/配置等点不到）。效果图里抽屉是 .main 内的 absolute、z-20，停靠栏 z-30 在其上。
-       这里用行内 top 把抽屉顶边推到停靠栏底边之下（3.5rem 头部 + 1.5rem 主区上内边距 + 53px 停靠栏高，
-       1440px 视口实测），z-index 降到 20（低于停靠栏的 30），height:auto 配 inset-y-0 的 bottom:0
-       使抽屉恰好撑满剩余高度。 -->
-  <Sheet :modal="false" :open="drawerOpen" @update:open="(value) => (drawerOpen = value)">
-    <SheetContent
-      side="right"
-      class="w-full overflow-y-auto p-5 sm:max-w-[640px]"
-      style="top: calc(3.5rem + 1.5rem + 53px); z-index: 20; height: auto"
-      @pointer-down-outside="(event) => event.preventDefault()"
-      @focus-outside="(event) => event.preventDefault()"
-    >
-      <SheetHeader class="border-b pb-4">
-        <SheetTitle>{{ form.name || t("template.create") }}</SheetTitle>
-      </SheetHeader>
+  <!-- 设定窗：外壳见 PageDrawer（非模态、640px、顶边推到停靠栏底边之下，z-20）。 -->
+  <PageDrawer v-model:open="drawerOpen">
+    <template #title>{{ form.name || t("template.create") }}</template>
       <div
         v-if="showMissingBadges"
         class="flex flex-wrap items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm"
@@ -185,8 +169,7 @@
       </div>
 
       <div class="space-y-5" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
-        <section>
-          <h3 class="mb-3 text-sm font-medium">{{ t("template.basicInfo") }}</h3>
+        <DrawerSection :title="t('template.basicInfo')">
           <div class="grid grid-cols-2 gap-3">
             <div class="space-y-1.5">
               <Label>{{ t("common.name") }}</Label>
@@ -237,12 +220,11 @@
               <Input v-model="form.sheet" />
             </div>
           </div>
-        </section>
+        </DrawerSection>
 
         <Separator />
 
-        <section>
-          <h3 class="mb-3 text-sm font-medium">{{ t("template.strategy") }}</h3>
+        <DrawerSection :title="t('template.strategy')">
           <Select v-model="form.strategy">
             <SelectTrigger class="w-full"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -278,7 +260,7 @@
           <p v-if="form.strategy === 'UPSERT' && !form.business_keys.length" class="mt-2 text-xs text-muted-foreground">
             {{ t("template.upsertNeedsKeys") }}
           </p>
-        </section>
+        </DrawerSection>
       </div>
 
       <Separator />
@@ -345,43 +327,15 @@
                   {{ t("template.onlySelectedColumns") }}
                 </label>
               </div>
-              <table class="w-full text-sm">
-                <thead>
-                  <tr class="border-b text-xs text-muted-foreground">
-                    <th class="pb-1.5 pr-2 text-left font-medium">{{ t("template.excelColumn") }}</th>
-                    <th class="pb-1.5 pr-2 text-left font-medium">{{ t("template.targetColumn") }}</th>
-                    <th class="pb-1.5 text-left font-medium">{{ t("template.score") }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="row in mappingRows"
-                    :key="pathKey(row.column.excel_path)"
-                    class="border-b"
-                    :class="selectedPathKeys.has(pathKey(row.column.excel_path)) ? 'bg-accent/60' : ''"
-                  >
-                    <td class="py-1.5 pr-2">{{ pathLabel(row.column.excel_path) }}</td>
-                    <td class="py-1.5 pr-2">
-                      <Input
-                        class="h-7"
-                        :model-value="row.column.db_column"
-                        list="db-columns"
-                        :placeholder="t('template.pickColumn')"
-                        @update:model-value="(value) => setColumn(row.index, String(value))"
-                      />
-                    </td>
-                    <td class="py-1.5 text-muted-foreground">
-                      {{ suggestionScores.get(pathKey(row.column.excel_path)) ?? "—" }}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              <MappingTable
+                :rows="mappingTableRows"
+                @update:db-column="({ index, value }) => setColumn(index, value)"
+              />
               <p v-if="selectedPathKeys.size" class="text-xs text-muted-foreground">
                 {{ t("template.selectionColumns", { n: selectedPathKeys.size }) }}
               </p>
             </template>
-            <div>
-              <h3 class="mb-3 text-sm font-medium">{{ t("template.constants") }}</h3>
+            <DrawerSection :title="t('template.constants')">
               <div
                 v-for="(constant, index) in form.mapping.constants"
                 :key="index"
@@ -410,11 +364,10 @@
                 <Button variant="ghost" size="sm" @click="removeConstant(index)">{{ t("common.remove") }}</Button>
               </div>
               <Button variant="outline" size="sm" @click="addConstant">{{ t("common.add") }}</Button>
-            </div>
-            <div>
-              <h3 class="mb-3 text-sm font-medium">{{ t("template.unpivot") }}</h3>
+            </DrawerSection>
+            <DrawerSection :title="t('template.unpivot')">
               <UnpivotEditor v-model="form.mapping.unpivot" :columns="dbColumns" />
-            </div>
+            </DrawerSection>
           </div>
         </TabsContent>
 
@@ -438,8 +391,7 @@
           </div>
         </TabsContent>
       </Tabs>
-    </SheetContent>
-  </Sheet>
+  </PageDrawer>
 
   <!-- 建表语句预览对话框 -->
   <Dialog :open="ddlDialogOpen" @update:open="(value) => (ddlDialogOpen = value)">
@@ -575,8 +527,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import DockBar from "@/components/layout/DockBar.vue";
+import DrawerSection from "@/components/layout/DrawerSection.vue";
+import PageDrawer from "@/components/layout/PageDrawer.vue";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import MappingTable from "@/components/template/MappingTable.vue";
 import RuleOverridesEditor from "@/components/template/RuleOverridesEditor.vue";
 import SynonymGroups from "@/components/template/SynonymGroups.vue";
 import UnpivotEditor from "@/components/template/UnpivotEditor.vue";
@@ -852,6 +807,17 @@ const mappingRows = computed(() =>
         selectedPathKeys.value.size === 0 ||
         selectedPathKeys.value.has(pathKey(column.excel_path)),
     ),
+);
+/** 供 MappingTable 用的行：分数无建议时为 null（表内显示“—”），选中列高亮。 */
+const mappingTableRows = computed(() =>
+  mappingRows.value.map(({ column, index }) => ({
+    key: pathKey(column.excel_path),
+    index,
+    excelLabel: pathLabel(column.excel_path),
+    dbColumn: column.db_column,
+    score: suggestionScores.value.get(pathKey(column.excel_path)) ?? null,
+    highlighted: selectedPathKeys.value.has(pathKey(column.excel_path)),
+  })),
 );
 
 const dataStartRow = computed({

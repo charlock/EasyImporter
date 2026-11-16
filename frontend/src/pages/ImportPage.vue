@@ -28,7 +28,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import DockBar from "@/components/layout/DockBar.vue";
+import DrawerSection from "@/components/layout/DrawerSection.vue";
+import PageDrawer from "@/components/layout/PageDrawer.vue";
+import MappingTable from "@/components/template/MappingTable.vue";
 import { gzipJsonl } from "@/features/excel/gzip";
 import { parseInWorker } from "@/features/excel/parse";
 import { pathLabel } from "@/features/header/tree";
@@ -120,6 +123,17 @@ function applyConstantOverrides(): void {
   mapped.value = mapped.value.map((row) => ({ ...row, values: { ...row.values, ...overrides } }));
   revalidate();
 }
+
+/** 抽屉“映射”section 的只读行：当前模板的映射，分数无数据（表内显示“—”）。 */
+const importMappingRows = computed(() =>
+  (template.value?.mapping.columns ?? []).map((column, index) => ({
+    key: column.excel_path.join("\u0000"),
+    index,
+    excelLabel: pathLabel(column.excel_path),
+    dbColumn: column.db_column,
+    score: null,
+  })),
+);
 
 /** 抽屉里的校验清单：前 20 条错误（行号 · 列 · 错误）。 */
 const errorList = computed(() => {
@@ -311,7 +325,7 @@ async function submit(): Promise<void> {
 <template>
   <div class="space-y-4">
     <!-- 顶部停靠栏：模板、文件、计数与操作放一行 -->
-    <div class="sticky top-14 z-30 -mx-4 flex items-center gap-2 overflow-x-auto border-b bg-background/95 px-4 py-2 backdrop-blur md:-mx-6 md:px-6">
+    <DockBar>
       <Select v-model="templateIdStr">
         <SelectTrigger class="h-8 w-56 shrink-0">
           <SelectValue :placeholder="t('import.pickTemplate')" />
@@ -344,9 +358,9 @@ async function submit(): Promise<void> {
         <PanelRight />{{ t("import.details") }}
       </Button>
       <Button size="sm" class="shrink-0" :disabled="!canSubmit" @click="submit">{{ t("import.submit") }}</Button>
-    </div>
+    </DockBar>
 
-    <Alert v-if="error" variant="destructive">
+    <Alert v-if="error" variant="destructive" class="mt-4">
       <AlertDescription>{{ error }}</AlertDescription>
     </Alert>
 
@@ -422,16 +436,15 @@ async function submit(): Promise<void> {
       </table>
     </div>
 
-    <!-- 右侧抽屉：文件 / 模板 / 校验 -->
-    <Sheet v-model:open="drawerOpen">
-      <SheetContent class="w-[440px] overflow-y-auto sm:max-w-[440px]">
-        <SheetHeader>
-          <SheetTitle>{{ t("import.details") }}</SheetTitle>
-        </SheetHeader>
-        <div class="space-y-6 py-2">
-          <section class="space-y-2">
-            <h3 class="text-sm font-medium">{{ t("import.file") }}</h3>
-            <dl class="space-y-1 text-sm">
+    <!-- 右侧抽屉：文件 / 模板 / 映射 / 导入常量 / 校验。外壳见 PageDrawer（非模态、
+         640px、顶边推到停靠栏底边之下）。导入页停靠栏实测也是 53px：模板下拉触发器
+         class 上写的是 h-8，但 shadcn-vue SelectTrigger 自带的默认 h-9 在层叠中胜出，
+         实测 36px 高（走查 1440px 视口量过），故用默认的 53，不传 dock-bar-height-px。 -->
+    <PageDrawer v-model:open="drawerOpen">
+      <template #title>{{ t("import.details") }}</template>
+      <div class="space-y-5">
+        <DrawerSection :title="t('import.file')">
+          <dl class="space-y-1.5 text-sm">
               <div class="flex justify-between gap-4">
                 <dt class="shrink-0 text-muted-foreground">{{ t("common.name") }}</dt>
                 <dd class="truncate">{{ sourceFile?.name ?? "—" }}</dd>
@@ -441,16 +454,15 @@ async function submit(): Promise<void> {
                 <dd>{{ mapped.length }}</dd>
               </div>
             </dl>
-            <p v-if="hiddenRows" class="text-sm text-muted-foreground">
+            <p v-if="hiddenRows" class="mt-2 text-sm text-muted-foreground">
               {{ t("import.hiddenRows", { n: hiddenRows }) }}
             </p>
-          </section>
+        </DrawerSection>
 
-          <Separator />
+        <Separator />
 
-          <section class="space-y-2">
-            <h3 class="text-sm font-medium">{{ t("import.template") }}</h3>
-            <dl class="space-y-1 text-sm">
+        <DrawerSection :title="t('import.template')">
+          <dl class="space-y-1.5 text-sm">
               <div class="flex justify-between gap-4">
                 <dt class="shrink-0 text-muted-foreground">{{ t("common.name") }}</dt>
                 <dd class="truncate">{{ template?.name ?? "—" }}</dd>
@@ -468,14 +480,19 @@ async function submit(): Promise<void> {
                 <dd class="truncate">{{ template?.business_keys.join(", ") || "—" }}</dd>
               </div>
             </dl>
-          </section>
+        </DrawerSection>
 
-          <Separator />
+        <Separator />
 
-          <section v-if="requiredConstants.length" class="space-y-2">
-            <h3 class="text-sm font-medium">{{ t("import.requiredConstants") }}</h3>
-            <p class="text-xs text-muted-foreground">{{ t("import.requiredConstantsHint") }}</p>
-            <div v-for="constant in requiredConstants" :key="constant.db_column" class="space-y-1.5">
+        <DrawerSection v-if="template" :title="t('template.mapping')">
+          <MappingTable :rows="importMappingRows" read-only />
+        </DrawerSection>
+
+        <Separator v-if="template" />
+
+        <DrawerSection v-if="requiredConstants.length" :title="t('import.requiredConstants')">
+          <p class="mb-3 text-xs text-muted-foreground">{{ t("import.requiredConstantsHint") }}</p>
+            <div v-for="constant in requiredConstants" :key="constant.db_column" class="mb-2 space-y-1.5">
               <Label>
                 {{ constant.db_column }} <span class="text-destructive">*</span>
               </Label>
@@ -492,23 +509,21 @@ async function submit(): Promise<void> {
                 {{ t("import.constantRequired", { column: constant.db_column }) }}
               </p>
             </div>
-          </section>
+        </DrawerSection>
 
-          <Separator v-if="requiredConstants.length" />
+        <Separator v-if="requiredConstants.length" />
 
-          <section class="space-y-2">
-            <h3 class="text-sm font-medium">{{ t("import.validation") }}</h3>
-            <p class="text-sm">{{ problems }} {{ t("import.errors") }}</p>
+        <DrawerSection :title="t('import.validation')">
+          <p class="mb-3 text-sm">{{ problems }} {{ t("import.errors") }}</p>
             <ul v-if="errorList.length" class="space-y-1 text-sm">
               <li v-for="(item, i) in errorList" :key="i" class="text-destructive">
                 #{{ item.rowNo }} · {{ item.column }} · {{ codeText(item.code) }}
               </li>
             </ul>
             <p v-else class="text-sm text-muted-foreground">{{ t("import.noErrorItems") }}</p>
-          </section>
-        </div>
-      </SheetContent>
-    </Sheet>
+        </DrawerSection>
+      </div>
+    </PageDrawer>
 
     <AlertDialog :open="scopeConfirm !== null" @update:open="(open) => { if (!open) closeScope(false); }">
       <AlertDialogContent>

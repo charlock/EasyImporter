@@ -15,6 +15,22 @@ export function errorMessage(caught: unknown): string {
   return caught instanceof Error ? caught.message : String(caught);
 }
 
+/**
+ * 带后端具体原因的错误文案：有翻译时显示“通用文案：后端具体原因”。
+ * 后端 ApiError 的 message 本来就是写给用户看的具体原因（如“映射到不存在的列：uscc”），
+ * 但 codeText 只返回通用翻译会把它丢掉——保存失败时用户就看不出是哪一项没过。
+ */
+export function errorMessageWithDetail(caught: unknown): string {
+  if (caught instanceof ApiError && caught.message) {
+    const key = `errors.${caught.code}`;
+    if (i18n.global.te(key)) {
+      const text = i18n.global.t(key);
+      if (text !== caught.message) return `${text}：${caught.message}`;
+    }
+  }
+  return errorMessage(caught);
+}
+
 /** 不带参数的日志码；其余日志码缺参数（旧数据）时退回后端写入的原文。 */
 const PARAMLESS_LOGS = new Set(["TASK_CANCELLED"]);
 

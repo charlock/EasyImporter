@@ -11,7 +11,7 @@ export default {
     passwordChanged: "Password changed. Sign in again with the new password",
   },
   common: {
-    save: "Save", cancel: "Cancel", delete: "Delete", confirm: "Confirm", create: "New",
+    save: "Save", cancel: "Cancel", delete: "Delete", confirm: "Confirm", create: "New", close: "Close",
     edit: "Edit", search: "Search", loading: "Loading", empty: "Nothing here", back: "Back",
     next: "Next", prev: "Back", actions: "Actions", name: "Name", description: "Description",
     status: "Status", required: "Required", add: "Add", remove: "Remove", saved: "Saved",
@@ -80,6 +80,9 @@ export default {
     requireInput: "Ask at import", constantDefault: "Default (optional)",
     missingTitle: "To complete", missing: { name: "Name", datasource: "Datasource", targetTable: "Target table", mapping: "Mapped column" },
     tableExists: "Target table {table} already exists", useExistingTable: "Use the existing table",
+    saveProgressTitle: "Saving template", saveStepCreateTable: "Create table",
+    saveStepSaveTemplate: "Save template", saveStepTableCreated: "Created {table} ({n} columns)",
+    saveStepTableReused: "Target table already exists, using {table}",
     dbType: "Type", nullable: "Nullable",
   },
   strategy: { APPEND: "Append only", UPSERT: "Upsert", REPLACE_SCOPE: "Replace by scope" },

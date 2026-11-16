@@ -477,6 +477,42 @@
     </DialogContent>
   </Dialog>
 
+  <!-- 保存执行步骤对话框 -->
+  <Dialog :open="saveDialogOpen" @update:open="(value) => { if (!value && !saving) saveDialogOpen = false; }">
+    <DialogContent class="max-w-md">
+      <DialogHeader>
+        <DialogTitle>{{ t("template.saveProgressTitle") }}</DialogTitle>
+      </DialogHeader>
+      <div class="space-y-3">
+        <div v-for="step in saveSteps" :key="step.key" class="flex items-start gap-3">
+          <span class="mt-0.5">
+            <Loader2 v-if="step.status === 'running'" class="h-4 w-4 animate-spin text-primary" />
+            <Check v-else-if="step.status === 'done'" class="h-4 w-4 text-green-600" />
+            <X v-else-if="step.status === 'failed'" class="h-4 w-4 text-destructive" />
+            <span v-else class="block h-4 w-4 rounded-full border" />
+          </span>
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-medium">{{ step.label }}</p>
+            <p
+              v-if="step.detail"
+              :class="[
+                'text-xs break-words',
+                step.status === 'failed' ? 'text-destructive' : 'text-muted-foreground',
+              ]"
+            >
+              {{ step.detail }}
+            </p>
+          </div>
+        </div>
+      </div>
+      <DialogFooter>
+        <Button variant="outline" :disabled="saving" @click="saveDialogOpen = false">
+          {{ t("common.close") }}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
   <!-- 放弃未保存修改确认 -->
   <AlertDialog :open="discardOpen" @update:open="(value) => { if (!value) resolveDiscard(false); }">
     <AlertDialogContent>
@@ -496,7 +532,7 @@
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
-import { ChevronDown, FileSpreadsheet, Pencil, Plus, SlidersHorizontal, Upload, Zap } from "@lucide/vue";
+import { Check, ChevronDown, FileSpreadsheet, Loader2, Pencil, Plus, SlidersHorizontal, Upload, X, Zap } from "@lucide/vue";
 import { toast } from "vue-sonner";
 
 import { ApiError, api } from "@/api/client";
@@ -564,7 +600,7 @@ import {
   viewerEditable,
   type TemplatePageModel,
 } from "@/features/template/state";
-import { errorMessage } from "@/lib/errors";
+import { errorMessageWithDetail } from "@/lib/errors";
 import { pathLabel } from "@/features/header/tree";
 import type {
   Datasource,
@@ -628,7 +664,13 @@ const form = ref<TemplateForm>(blankForm());
 const savedSnapshot = ref(JSON.stringify(form.value));
 const dirty = computed(() => JSON.stringify(form.value) !== savedSnapshot.value);
 /** 与必填缺失 Badge 同源：valid = 清单为空。 */
-const missingRequired = computed(() => missingRequiredFields(form.value));
+const missingRequired = computed(() =>
+  // 自动建表模式下目标表就是待创建的表名：填好表名即算满足，保存时再自动建表。
+  missingRequiredFields({
+    ...form.value,
+    target_table: autoTableMode.value ? autoTableName.value : form.value.target_table,
+  }),
+);
 const showMissingBadges = computed(
   () => (pageModel.value.state === "S2" || pageModel.value.state === "S3") && missingRequired.value.length > 0,
 );
@@ -670,6 +712,25 @@ const schemaColumns = ref<TableSchema["columns"]>([]);
 const suggestions = ref<Suggestion[]>([]);
 const error = ref("");
 const saving = ref(false);
+
+/** 保存时的执行步骤：自动建表模式下先建表再保存，否则只有保存一步。 */
+type SaveStepStatus = "pending" | "running" | "done" | "failed";
+interface SaveStep {
+  key: "create-table" | "save-template";
+  label: string;
+  status: SaveStepStatus;
+  detail: string;
+}
+const saveSteps = ref<SaveStep[]>([]);
+const saveDialogOpen = ref(false);
+
+function setSaveStep(key: SaveStep["key"], status: SaveStepStatus, detail = ""): void {
+  const step = saveSteps.value.find((item) => item.key === key);
+  if (step) {
+    step.status = status;
+    step.detail = detail;
+  }
+}
 const drawerOpen = ref(false);
 const activeTab = ref("start-row");
 const onlySelectedColumns = ref(false);
@@ -808,7 +869,7 @@ function guarded(fn: () => Promise<void> | void): void {
   void Promise.resolve()
     .then(fn)
     .catch((caught: unknown) => {
-      error.value = errorMessage(caught);
+      error.value = errorMessageWithDetail(caught);
     });
 }
 
@@ -888,6 +949,9 @@ function onTargetSelect(value: unknown): void {
   if (typeof value !== "string") return;
   if (value === AUTO_TABLE_VALUE) {
     autoTableMode.value = true;
+    // 切到自动建表后，之前选过的目标表就不再是本次保存的目标：清掉，避免保存时
+    // 拿着一张旧表去校验（之前因此出现过“模板配置不合法”却看不出原因的情况）。
+    form.value = { ...form.value, target_table: "" };
     if (!autoTableName.value) autoTableName.value = defaultTableName();
     return;
   }
@@ -971,7 +1035,28 @@ async function saveTemplate(): Promise<void> {
   if (!buttonStates.value.save) return;
   saving.value = true;
   error.value = "";
+  // 自动建表模式下保存分两步走：先在后台建表（校验 + 建表），再保存模板；
+  // 用户不用再手动点“预览建表语句 / 确认建表”，执行节点在对话框里实时显示。
+  const needsTable = autoTableMode.value && form.value.datasource_id != null;
+  const steps: SaveStep[] = [];
+  if (needsTable) {
+    steps.push({
+      key: "create-table",
+      label: t("template.saveStepCreateTable"),
+      status: "pending",
+      detail: autoTableName.value,
+    });
+  }
+  steps.push({ key: "save-template", label: t("template.saveStepSaveTemplate"), status: "pending", detail: "" });
+  saveSteps.value = steps;
+  saveDialogOpen.value = true;
   try {
+    if (needsTable) {
+      setSaveStep("create-table", "running");
+      const created = await ensureAutoTableForSave();
+      setSaveStep("create-table", "done", created.detail);
+    }
+    setSaveStep("save-template", "running");
     const payload = {
       name: form.value.name,
       description: form.value.description,
@@ -1002,12 +1087,18 @@ async function saveTemplate(): Promise<void> {
       const created = await api.post<Template>(`/workspaces/${props.workspaceId}/templates`, payload);
       savedId = created.id;
     }
+    setSaveStep("save-template", "done");
+    saveDialogOpen.value = false;
     if (savedId != null) {
       pageModel.value = transition(pageModel.value, { type: "saveSuccess", id: savedId });
     }
     await router.push("/templates");
   } catch (caught) {
-    error.value = errorMessage(caught);
+    const message = errorMessageWithDetail(caught);
+    const running = saveSteps.value.find((step) => step.status === "running");
+    if (running) setSaveStep(running.key, "failed", message);
+    error.value = message;
+    // 对话框保持打开，让用户看清哪一步失败、为什么失败；点关闭后回到抽屉再改。
   } finally {
     saving.value = false;
   }
@@ -1238,29 +1329,95 @@ const previewHint = computed(() => {
   return "";
 });
 
+/** 推断建表列清单并取 DDL（只校验、不建表）；预览和保存自动建表共用。 */
+async function runInfer(): Promise<{
+  columns: { db_column: string; db_type: string; nullable: boolean }[];
+  ddl: string;
+}> {
+  const res = await api.post<{
+    columns: { db_column: string; db_type: string; nullable: boolean }[];
+    ddl: string;
+  }>(`/workspaces/${props.workspaceId}/datasources/${form.value.datasource_id}/tables/infer`, {
+    target_schema: form.value.target_schema || "public",
+    table_name: autoTableName.value,
+    columns: inferColumnsPayload(),
+    unique_keys: form.value.business_keys,
+  });
+  inferredColumns.value = res.columns;
+  ddlPreview.value = res.ddl;
+  return res;
+}
+
 async function previewDdl(): Promise<void> {
   if (!form.value.datasource_id) return;
   inferring.value = true;
   error.value = "";
   try {
-    const res = await api.post<{
-      columns: { db_column: string; db_type: string; nullable: boolean }[];
-      ddl: string;
-    }>(`/workspaces/${props.workspaceId}/datasources/${form.value.datasource_id}/tables/infer`, {
-      target_schema: form.value.target_schema || "public",
-      table_name: autoTableName.value,
-      columns: inferColumnsPayload(),
-      unique_keys: form.value.business_keys,
-    });
-    inferredColumns.value = res.columns;
-    ddlPreview.value = res.ddl;
+    await runInfer();
     tableExists.value = false;
     existingTable.value = null;
     ddlDialogOpen.value = true;
   } catch (caught) {
-    error.value = errorMessage(caught);
+    error.value = errorMessageWithDetail(caught);
   } finally {
     inferring.value = false;
+  }
+}
+
+/** 按推断出的列清单执行建表。 */
+async function runAutoCreate(
+  columns: { db_column: string; db_type: string; nullable: boolean }[],
+): Promise<TableInfo> {
+  return api.post<TableInfo>(
+    `/workspaces/${props.workspaceId}/datasources/${form.value.datasource_id}/tables/auto-create`,
+    {
+      target_schema: form.value.target_schema || "public",
+      target_table: autoTableName.value,
+      columns,
+      unique_keys: form.value.business_keys,
+    },
+  );
+}
+
+/** 建表成功后的收尾：退出自动建表模式，选中新表并刷新建议分数（不动映射）。 */
+async function applyCreatedTable(res: TableInfo): Promise<void> {
+  autoTableMode.value = false;
+  tables.value = await api.get<TableInfo[]>(`/datasources/${form.value.datasource_id}/tables`);
+  form.value = { ...form.value, target_schema: res.schema, target_table: res.name };
+  // 注意：新表是按当前映射建出来的，映射本身依然有效；但新表没有列注释，
+  // 再跑一次建议映射会返回空并把映射清空（resuggest(true) 会覆写），所以这里
+  // 只刷新建议分数显示，不动映射。
+  await guarded(() => resuggest(false));
+}
+
+/** 目标表已存在时直接使用它（与新建表同理，只刷新建议分数，不覆写映射）。 */
+async function applyExistingTable(schema: string, table: string): Promise<void> {
+  autoTableMode.value = false;
+  form.value = { ...form.value, target_schema: schema, target_table: table };
+  await guarded(() => resuggest(false));
+}
+
+/**
+ * 保存时自动建表：先 infer 校验（列名、业务键都在这一步校验），再建表。
+ * 表已存在时不报错，直接使用已存在表——保存时还会按真实表结构再校验一次映射。
+ */
+async function ensureAutoTableForSave(): Promise<{ detail: string }> {
+  const inferred = await runInfer();
+  try {
+    const created = await runAutoCreate(inferred.columns);
+    await applyCreatedTable(created);
+    return {
+      detail: t("template.saveStepTableCreated", { table: created.name, n: inferred.columns.length }),
+    };
+  } catch (caught) {
+    if (caught instanceof ApiError && caught.code === "TABLE_EXISTS") {
+      const params = caught.params as { schema?: string; table?: string };
+      const table = String(params.table ?? autoTableName.value);
+      const schema = String(params.schema ?? form.value.target_schema ?? "public");
+      await applyExistingTable(schema, table);
+      return { detail: t("template.saveStepTableReused", { table }) };
+    }
+    throw caught;
   }
 }
 
@@ -1269,24 +1426,10 @@ async function createTable(): Promise<void> {
   creating.value = true;
   error.value = "";
   try {
-    const res = await api.post<TableInfo>(
-      `/workspaces/${props.workspaceId}/datasources/${form.value.datasource_id}/tables/auto-create`,
-      {
-        target_schema: form.value.target_schema || "public",
-        target_table: autoTableName.value,
-        columns: inferredColumns.value,
-        unique_keys: form.value.business_keys,
-      },
-    );
+    const res = await runAutoCreate(inferredColumns.value);
     ddlDialogOpen.value = false;
-    autoTableMode.value = false;
-    tables.value = await api.get<TableInfo[]>(`/datasources/${form.value.datasource_id}/tables`);
-    form.value = { ...form.value, target_schema: res.schema, target_table: res.name };
+    await applyCreatedTable(res);
     toast.success(t("template.tableCreated"));
-    // 注意：新表是按当前映射建出来的，映射本身依然有效；但新表没有列注释，
-    // 再跑一次建议映射会返回空并把映射清空（resuggest(true) 会覆写），所以这里
-    // 只刷新建议分数显示，不动映射。
-    await guarded(() => resuggest(false));
   } catch (caught) {
     if (caught instanceof ApiError && caught.code === "TABLE_EXISTS") {
       tableExists.value = true;
@@ -1296,7 +1439,7 @@ async function createTable(): Promise<void> {
         table: String(params.table ?? autoTableName.value),
       };
     } else {
-      error.value = errorMessage(caught);
+      error.value = errorMessageWithDetail(caught);
     }
   } finally {
     creating.value = false;
@@ -1306,14 +1449,7 @@ async function createTable(): Promise<void> {
 async function useExistingTable(): Promise<void> {
   if (!existingTable.value || !form.value.datasource_id) return;
   ddlDialogOpen.value = false;
-  autoTableMode.value = false;
-  form.value = {
-    ...form.value,
-    target_schema: existingTable.value.schema,
-    target_table: existingTable.value.table,
-  };
-  // 同 createTable：只刷新建议分数，不覆写映射（否则无注释的表会把映射清空）。
-  await guarded(() => resuggest(false));
+  await applyExistingTable(existingTable.value.schema, existingTable.value.table);
 }
 
 /* ---------- 监听 ---------- */

@@ -10,7 +10,7 @@ export default {
     passwordTooShort: "新密码至少 8 位", passwordChanged: "密码已修改，请用新密码重新登录",
   },
   common: {
-    save: "保存", cancel: "取消", delete: "删除", confirm: "确认", create: "新建",
+    save: "保存", cancel: "取消", delete: "删除", confirm: "确认", create: "新建", close: "关闭",
     edit: "编辑", search: "搜索", loading: "加载中", empty: "暂无数据", back: "返回",
     next: "下一步", prev: "上一步", actions: "操作", name: "名称", description: "说明",
     status: "状态", required: "必填", add: "添加", remove: "移除", saved: "已保存",
@@ -76,6 +76,9 @@ export default {
     requireInput: "导入时输入", constantDefault: "默认值（可选）",
     missingTitle: "待完善", missing: { name: "名称", datasource: "数据源", targetTable: "目标表", mapping: "映射列" },
     tableExists: "目标表 {table} 已存在", useExistingTable: "使用已存在表",
+    saveProgressTitle: "正在保存模板", saveStepCreateTable: "创建数据表",
+    saveStepSaveTemplate: "保存模板", saveStepTableCreated: "已创建 {table}（{n} 列）",
+    saveStepTableReused: "目标表已存在，直接使用 {table}",
     dbType: "类型", nullable: "可为空",
   },
   strategy: { APPEND: "仅追加", UPSERT: "存在则更新", REPLACE_SCOPE: "按范围替换" },

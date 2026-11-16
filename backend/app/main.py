@@ -47,6 +47,9 @@ def create_app() -> FastAPI:
                        allow_headers=["*"])
     for module in (auth, workspaces, datasources, templates, imports):
         app.include_router(module.router, prefix=API_PREFIX)
+    # 智能建表端点在 datasources.py 内用无前缀 router 定义，路径形如
+    # /workspaces/{wid}/datasources/{id}/tables/...，这里一并注册。
+    app.include_router(datasources.workspace_router, prefix=API_PREFIX)
     app.add_api_route(f"{API_PREFIX}/health", _health, methods=["GET"])
     return app
 

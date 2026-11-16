@@ -1,6 +1,7 @@
 """请求与响应模型。"""
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -91,6 +92,49 @@ class ColumnOut(BaseModel):
     nullable: bool
     default: str | None
     is_primary_key: bool
+
+
+class TableInfoOut(BaseModel):
+    schema_name: str = Field(alias="schema")
+    name: str
+
+    model_config = {"populate_by_name": True}
+
+
+class InferColumnIn(BaseModel):
+    db_column: str
+    samples: list[Any] = Field(default=[], max_length=200)
+
+
+class InferRequest(BaseModel):
+    target_schema: str = ""
+    table_name: str | None = None
+    columns: list[InferColumnIn] = Field(min_length=1)
+    unique_keys: list[str] = []
+
+
+class InferredColumnOut(BaseModel):
+    db_column: str
+    db_type: str
+    nullable: bool
+
+
+class InferResponse(BaseModel):
+    columns: list[InferredColumnOut]
+    ddl: str
+
+
+class AutoCreateColumnIn(BaseModel):
+    db_column: str
+    db_type: str
+    nullable: bool = True
+
+
+class AutoCreateRequest(BaseModel):
+    target_schema: str = ""
+    target_table: str
+    columns: list[AutoCreateColumnIn] = Field(min_length=1)
+    unique_keys: list[str] = []
 
 
 class TableSchemaOut(BaseModel):

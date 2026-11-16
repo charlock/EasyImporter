@@ -72,6 +72,26 @@ class TargetDatabase:
         return TableSchema(schema=schema, table_name=table, columns=columns,
                            unique_keys=unique_keys, engine=engine_name)
 
+    def table_exists(self, schema: str | None, table: str) -> bool:
+        """智能建表用：判目标表是否已存在。SQLite 测试替身没有 information_schema。"""
+        with self.engine.connect() as conn:
+            if conn.dialect.name == "sqlite":
+                row = conn.execute(
+                    text("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :table"),
+                    {"table": table}).first()
+                return row is not None
+            schema = schema or self._default_schema()
+            row = conn.execute(text(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema = :schema AND table_name = :table"),
+                {"schema": schema, "table": table}).first()
+            return row is not None
+
+    def create_table(self, ddl: str) -> None:
+        """智能建表用：在一个事务里执行已由白名单拼好的 CREATE TABLE 语句。"""
+        with self.engine.begin() as conn:
+            conn.execute(text(ddl))
+
     def _default_schema(self) -> str:
         with self.engine.connect() as conn:
             if self.dialect == POSTGRES:

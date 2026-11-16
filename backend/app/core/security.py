@@ -52,6 +52,20 @@ def _load(db: DbSession, token: str | None) -> tuple[Session, User]:
     return record, user
 
 
+def current_session_record(
+    db: DbSession = Depends(get_session),
+    ei_session: str | None = Cookie(default=None, alias=COOKIE_NAME),
+) -> Session:
+    """按 Cookie 找到当前会话记录（/me 返回它自己的 CSRF token）。
+
+    注意：不要按 user_id 取最新会话——同一用户可能同时在多个浏览器登录，
+    最新会话的 token 与当前会话的不一致，旧会话的写操作会全部报 CSRF_INVALID。
+    """
+    record, _ = _load(db, ei_session)
+    db.commit()
+    return record
+
+
 def current_user(
     db: DbSession = Depends(get_session),
     ei_session: str | None = Cookie(default=None, alias=COOKIE_NAME),

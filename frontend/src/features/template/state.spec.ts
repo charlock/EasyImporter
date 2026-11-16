@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   computeButtonStates,
   initialModel,
+  missingRequiredFields,
   transition,
   viewerEditable,
   type TemplatePageModel,
@@ -118,5 +119,30 @@ describe("viewerEditable", () => {
     expect(viewerEditable(S1)).toBe(false);
     expect(viewerEditable(S2fromS1)).toBe(true);
     expect(viewerEditable(S3)).toBe(true);
+  });
+});
+
+describe("missingRequiredFields", () => {
+  const base = {
+    name: "销售月度",
+    datasource_id: 1,
+    target_table: "sales_monthly",
+    mapping: { columns: [{ db_column: "serial_no" }] },
+  };
+  it("完整表单 → 空清单", () => {
+    expect(missingRequiredFields(base)).toEqual([]);
+  });
+  it("逐项缺失都能报出", () => {
+    expect(missingRequiredFields({ ...base, name: "  " })).toEqual(["name"]);
+    expect(missingRequiredFields({ ...base, datasource_id: null })).toEqual(["datasource"]);
+    expect(missingRequiredFields({ ...base, target_table: "" })).toEqual(["targetTable"]);
+    expect(missingRequiredFields({ ...base, mapping: { columns: [{ db_column: " " }] } })).toEqual([
+      "mapping",
+    ]);
+  });
+  it("多项缺失按固定顺序返回", () => {
+    expect(
+      missingRequiredFields({ name: "", datasource_id: null, target_table: "", mapping: { columns: [] } }),
+    ).toEqual(["name", "datasource", "targetTable", "mapping"]);
   });
 });

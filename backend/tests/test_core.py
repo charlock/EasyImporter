@@ -410,3 +410,24 @@ def test_session_expiry(env, monkeypatch):
         record.expires_at = datetime.now(UTC) - timedelta(hours=1)
         db.commit()
     assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_me_returns_current_session_csrf_with_multiple_sessions(env):
+    """登录两次产生两个会话后，用第一个会话的 cookie 调 /me，
+    必须返回第一个会话的 CSRF token，而不是最新会话的。
+
+    回归：旧实现按 id 倒序取最新会话的 token，导致旧会话的浏览器
+    拿到错误的 token，之后所有写操作都报 CSRF_INVALID（页面已过期）。
+    """
+    client, _ = env
+    me1 = _login(client)
+    cookie1 = client.cookies.get("ei_session")
+    assert cookie1
+    client.cookies.clear()
+    me2 = _login(client)
+    assert me2["csrf_token"] != me1["csrf_token"]
+    client.cookies.clear()
+    client.cookies.set("ei_session", cookie1)
+    response = client.get("/api/v1/auth/me")
+    assert response.status_code == 200, response.text
+    assert response.json()["csrf_token"] == me1["csrf_token"]

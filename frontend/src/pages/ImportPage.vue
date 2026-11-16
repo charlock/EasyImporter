@@ -18,6 +18,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -87,9 +89,37 @@ const columns = computed<GridColumn[]>(() => {
 });
 
 const problems = computed(() => errorCount(rows.value));
-const canSubmit = computed(
-  () => mapped.value.length > 0 && problems.value === 0 && !parsing.value && !submitting.value,
+
+/** 模板里勾了“导入时输入”的常量列：导入时必须逐文件填值（模板里的 value 仅作默认值）。 */
+const requiredConstants = computed(
+  () =>
+    template.value?.mapping.constants.filter(
+      (constant) => constant.require_input === true && constant.db_column.trim() !== "",
+    ) ?? [],
 );
+/** 各必填常量的本次填值，键为目标列名；切换模板时用模板默认值重填。 */
+const constantInputs = ref<Record<string, string>>({});
+const constantsComplete = computed(() =>
+  requiredConstants.value.every((constant) => (constantInputs.value[constant.db_column] ?? "").trim() !== ""),
+);
+const canSubmit = computed(
+  () =>
+    mapped.value.length > 0 &&
+    problems.value === 0 &&
+    constantsComplete.value &&
+    !parsing.value &&
+    !submitting.value,
+);
+
+/** 把本次填的常量值写进已映射的行（整列取该值），再重新校验；输入框失焦/回车时调用。 */
+function applyConstantOverrides(): void {
+  if (!requiredConstants.value.length || !mapped.value.length) return;
+  const overrides = Object.fromEntries(
+    requiredConstants.value.map((constant) => [constant.db_column, constantInputs.value[constant.db_column] ?? ""]),
+  );
+  mapped.value = mapped.value.map((row) => ({ ...row, values: { ...row.values, ...overrides } }));
+  revalidate();
+}
 
 /** 抽屉里的校验清单：前 20 条错误（行号 · 列 · 错误）。 */
 const errorList = computed(() => {
@@ -144,10 +174,16 @@ watch(
 watch(templateId, async (id) => {
   resetData();
   template.value = null;
+  constantInputs.value = {};
   if (id == null) return;
   try {
     template.value = await api.get<Template>(`/workspaces/${props.workspaceId}/templates/${id}`);
     rules.value = await api.get<ColumnRule[]>(`/workspaces/${props.workspaceId}/templates/${id}/rules`);
+    constantInputs.value = Object.fromEntries(
+      (template.value.mapping.constants ?? [])
+        .filter((constant) => constant.require_input === true)
+        .map((constant) => [constant.db_column, constant.value ?? ""]),
+    );
   } catch (caught) {
     error.value = errorMessage(caught);
   }
@@ -250,6 +286,8 @@ async function submit(): Promise<void> {
   error.value = "";
   submitting.value = true;
   try {
+    // 提交前再覆盖一次常量值：用户可能填完值后未失焦就直接点提交。
+    applyConstantOverrides();
     if (current.strategy === "REPLACE_SCOPE" && !(await confirmScope(current))) return;
     const payload = mapped.value.map((row) => ({ ...row.values, _row: row.row_no }));
     const form = new FormData();
@@ -433,6 +471,30 @@ async function submit(): Promise<void> {
           </section>
 
           <Separator />
+
+          <section v-if="requiredConstants.length" class="space-y-2">
+            <h3 class="text-sm font-medium">{{ t("import.requiredConstants") }}</h3>
+            <p class="text-xs text-muted-foreground">{{ t("import.requiredConstantsHint") }}</p>
+            <div v-for="constant in requiredConstants" :key="constant.db_column" class="space-y-1.5">
+              <Label>
+                {{ constant.db_column }} <span class="text-destructive">*</span>
+              </Label>
+              <Input
+                :model-value="constantInputs[constant.db_column] ?? ''"
+                :placeholder="t('import.constantPlaceholder', { column: constant.db_column })"
+                @update:model-value="(value) => (constantInputs[constant.db_column] = String(value))"
+                @change="applyConstantOverrides"
+              />
+              <p
+                v-if="(constantInputs[constant.db_column] ?? '').trim() === ''"
+                class="text-xs text-destructive"
+              >
+                {{ t("import.constantRequired", { column: constant.db_column }) }}
+              </p>
+            </div>
+          </section>
+
+          <Separator v-if="requiredConstants.length" />
 
           <section class="space-y-2">
             <h3 class="text-sm font-medium">{{ t("import.validation") }}</h3>

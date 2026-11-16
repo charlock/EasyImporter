@@ -33,3 +33,16 @@ describe("missingHeaders", () => {
     expect(missing).toEqual([["2月", "销售额"]]);
   });
 });
+
+describe("applyMapping constantOverrides", () => {
+  const row = { "流水号": "S1", "1月\u0000销售额": "10", "2月\u0000销售额": "" };
+  it("导入时输入的常量值覆盖模板固定值", () => {
+    const rows = applyMapping(row, mapping, 2, { source: "web" });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].values.source).toBe("web");
+  });
+  it("没有覆盖时仍用模板固定值", () => {
+    const rows = applyMapping(row, mapping, 2);
+    expect(rows[0].values.source).toBe("excel");
+  });
+});

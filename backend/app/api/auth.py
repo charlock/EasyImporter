@@ -14,6 +14,7 @@ from app.core.errors import ApiError
 from app.core.security import (
     COOKIE_NAME,
     current_session,
+    current_session_record,
     current_user,
     member_workspace_ids,
     new_session,
@@ -64,10 +65,9 @@ def logout(user: User = Depends(current_session), db: Session = Depends(get_sess
 
 
 @router.get("/me", response_model=MeOut)
-def me(user: User = Depends(current_user), db: Session = Depends(get_session)):
-    record = db.scalar(select(SessionRecord).where(SessionRecord.user_id == user.id)
-                       .order_by(SessionRecord.id.desc()))
-    return _me(db, user, record.csrf_token if record else "")
+def me(user: User = Depends(current_user), db: Session = Depends(get_session),
+       record: SessionRecord = Depends(current_session_record)):
+    return _me(db, user, record.csrf_token)
 
 
 @router.post("/password", response_model=UserOut)

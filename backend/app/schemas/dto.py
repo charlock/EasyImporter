@@ -172,6 +172,8 @@ class Unpivot(BaseModel):
 class ConstantMapping(BaseModel):
     db_column: str
     value: str
+    # 导入时输入：导入页要求用户逐文件填值（value 仅作默认值，可空）。
+    require_input: bool = False
 
 
 class Mapping(BaseModel):

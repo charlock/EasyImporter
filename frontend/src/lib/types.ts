@@ -94,6 +94,8 @@ export interface Unpivot {
 export interface ConstantMapping {
   db_column: string;
   value: string;
+  /** 导入时输入：导入页要求用户逐文件填值，value 仅作默认值。 */
+  require_input?: boolean;
 }
 
 export interface Mapping {

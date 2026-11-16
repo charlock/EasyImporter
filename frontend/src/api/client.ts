@@ -34,7 +34,7 @@ interface RequestOptions {
   query?: Record<string, string | number | undefined>;
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function requestOnce<T>(path: string, options: RequestOptions, retried: boolean): Promise<T> {
   const method = options.method ?? "GET";
   const headers: Record<string, string> = {};
   if (method !== "GET" && csrfToken) headers["X-CSRF-Token"] = csrfToken;
@@ -68,9 +68,28 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const parsed = text ? (JSON.parse(text) as unknown) : undefined;
   if (!response.ok) {
     const error = (parsed ?? { code: "UNKNOWN", message: response.statusText }) as ApiErrorBody;
+    if (!retried && response.status === 403 && error.code === "CSRF_INVALID") {
+      // token 可能已漂移（例如多会话登录后 /me 曾返回别的会话的 token）：
+      // 重新拉 /me 取当前会话的 token 再试一次。403 表示服务端在依赖层
+      // 就拒绝了，处理函数未执行，因此重试不会重复落库。
+      try {
+        const refreshed = await fetch(`${API_PREFIX}/auth/me`, { credentials: "same-origin" });
+        const me = refreshed.ok ? ((await refreshed.json()) as { csrf_token?: string }) : null;
+        if (me?.csrf_token) {
+          setCsrfToken(me.csrf_token);
+          return requestOnce<T>(path, options, true);
+        }
+      } catch {
+        // 刷新失败时落到下面的原始错误，不掩盖它。
+      }
+    }
     throw new ApiError(response.status, error);
   }
   return parsed as T;
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return requestOnce<T>(path, options, false);
 }
 
 export const api = {

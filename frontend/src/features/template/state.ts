@@ -99,6 +99,25 @@ export function computeButtonStates(
   };
 }
 
+/** 保存必填项缺失清单（与页面 valid 同源：valid = 清单为空）。 */
+export type MissingRequiredKey = "name" | "datasource" | "targetTable" | "mapping";
+
+export function missingRequiredFields(form: {
+  name: string;
+  datasource_id: number | null;
+  target_table: string;
+  mapping: { columns: { db_column: string }[] };
+}): MissingRequiredKey[] {
+  const missing: MissingRequiredKey[] = [];
+  if (form.name.trim() === "") missing.push("name");
+  if (form.datasource_id == null) missing.push("datasource");
+  if (form.target_table === "") missing.push("targetTable");
+  if (!form.mapping.columns.some((column) => column.db_column.trim() !== "")) {
+    missing.push("mapping");
+  }
+  return missing;
+}
+
 /** Viewer 是否可编辑：仅新建/编辑态（库的 editable 默认 false = 只读）。 */
 export function viewerEditable(model: TemplatePageModel): boolean {
   return model.state === "S2" || model.state === "S3";

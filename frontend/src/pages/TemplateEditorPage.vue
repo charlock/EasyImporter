@@ -166,6 +166,15 @@
         <SheetTitle>{{ form.name || t("template.create") }}</SheetTitle>
       </SheetHeader>
       <div
+        v-if="showMissingBadges"
+        class="flex flex-wrap items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm"
+      >
+        <span class="font-medium text-destructive">{{ t("template.missingTitle") }}</span>
+        <Badge v-for="key in missingRequired" :key="key" variant="destructive">
+          {{ t(`template.missing.${key}`) }}
+        </Badge>
+      </div>
+      <div
         v-if="pendingRowFill != null && activeTab !== 'start-row' && pageModel.state !== 'S1'"
         class="flex items-center justify-between rounded-md bg-accent px-3 py-2.5 text-sm"
       >
@@ -376,7 +385,7 @@
               <div
                 v-for="(constant, index) in form.mapping.constants"
                 :key="index"
-                class="mb-2 grid grid-cols-[1fr_1fr_auto] items-center gap-2"
+                class="mb-2 grid grid-cols-[1fr_1fr_auto_auto] items-center gap-2"
               >
                 <Input
                   :model-value="constant.db_column"
@@ -386,9 +395,18 @@
                 />
                 <Input
                   :model-value="constant.value"
-                  :placeholder="t('common.value')"
+                  :placeholder="
+                    constant.require_input ? t('template.constantDefault') : t('common.value')
+                  "
                   @update:model-value="(value) => setConstant(index, 'value', String(value))"
                 />
+                <label class="flex shrink-0 items-center gap-1 text-sm whitespace-nowrap">
+                  <Checkbox
+                    :model-value="constant.require_input === true"
+                    @update:model-value="(checked) => setConstantFlag(index, 'require_input', checked === true)"
+                  />
+                  {{ t("template.requireInput") }}
+                </label>
                 <Button variant="ghost" size="sm" @click="removeConstant(index)">{{ t("common.remove") }}</Button>
               </div>
               <Button variant="outline" size="sm" @click="addConstant">{{ t("common.add") }}</Button>
@@ -483,6 +501,7 @@ import { toast } from "vue-sonner";
 
 import { ApiError, api } from "@/api/client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -540,6 +559,7 @@ import {
 import {
   computeButtonStates,
   initialModel,
+  missingRequiredFields,
   transition,
   viewerEditable,
   type TemplatePageModel,
@@ -607,17 +627,25 @@ const readOnly = computed(() => pageModel.value.state === "S1");
 const form = ref<TemplateForm>(blankForm());
 const savedSnapshot = ref(JSON.stringify(form.value));
 const dirty = computed(() => JSON.stringify(form.value) !== savedSnapshot.value);
-const valid = computed(
-  () =>
-    form.value.name.trim() !== "" &&
-    form.value.datasource_id != null &&
-    form.value.target_table !== "" &&
-    form.value.mapping.columns.some((column) => column.db_column.trim() !== ""),
+/** 与必填缺失 Badge 同源：valid = 清单为空。 */
+const missingRequired = computed(() => missingRequiredFields(form.value));
+const showMissingBadges = computed(
+  () => (pageModel.value.state === "S2" || pageModel.value.state === "S3") && missingRequired.value.length > 0,
 );
+const valid = computed(() => missingRequired.value.length === 0);
 const buttonStates = computed(() =>
   computeButtonStates(pageModel.value, { valid: valid.value, dirty: dirty.value, saving: saving.value }),
 );
-const saveDisabledReason = computed(() => (buttonStates.value.save ? "" : t("template.saveDisabled")));
+const saveDisabledReason = computed(() => {
+  if (buttonStates.value.save) return "";
+  if (missingRequired.value.length > 0) {
+    return t("template.saveDisabledMissing", {
+      list: missingRequired.value.map((key) => t(`template.missing.${key}`)).join("、"),
+    });
+  }
+  if (!dirty.value) return t("template.saveNoChanges");
+  return t("template.saveDisabled");
+});
 const stateBadge = computed(() => {
   switch (pageModel.value.state) {
     case "S0":
@@ -813,6 +841,13 @@ function setColumn(index: number, value: string): void {
 }
 
 function setConstant(index: number, field: "db_column" | "value", value: string): void {
+  const constants = form.value.mapping.constants.map((constant, i) =>
+    i === index ? { ...constant, [field]: value } : constant,
+  );
+  form.value = { ...form.value, mapping: { ...form.value.mapping, constants } };
+}
+
+function setConstantFlag(index: number, field: "require_input", value: boolean): void {
   const constants = form.value.mapping.constants.map((constant, i) =>
     i === index ? { ...constant, [field]: value } : constant,
   );

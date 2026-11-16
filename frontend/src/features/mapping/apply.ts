@@ -15,11 +15,19 @@ function isEmpty(value: unknown): boolean {
   return value == null || (typeof value === "string" && value.trim() === "");
 }
 
-/** 把一行 Excel 数据按映射展开成一到多行目标表记录。 */
-export function applyMapping(row: Record<string, unknown>, mapping: Mapping, rowNo: number): MappedRow[] {
+/** 把一行 Excel 数据按映射展开成一到多行目标表记录。
+ * constantOverrides：导入时输入的常量值（按目标列覆盖模板里的固定值）。 */
+export function applyMapping(
+  row: Record<string, unknown>,
+  mapping: Mapping,
+  rowNo: number,
+  constantOverrides: Record<string, string> = {},
+): MappedRow[] {
   const base: Record<string, unknown> = {};
   for (const column of mapping.columns) base[column.db_column] = lookup(row, column.excel_path);
-  for (const constant of mapping.constants) base[constant.db_column] = constant.value;
+  for (const constant of mapping.constants) {
+    base[constant.db_column] = constantOverrides[constant.db_column] ?? constant.value;
+  }
 
   const unpivot = mapping.unpivot;
   if (!unpivot) return [{ row_no: rowNo, values: base }];

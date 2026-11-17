@@ -65,6 +65,7 @@ import {
   collectErrorPositions,
   editableTargets,
   expandMappedRows,
+  resyncRowsFromModel,
   resolveCellEdit,
   resolveErrorCell,
   type IndexedError,
@@ -289,13 +290,17 @@ function refreshErrorCells(): void {
 }
 
 function refreshUndoRedo(): void {
-  try {
-    canUndo.value = viewer.viewerApi.value?.canUndo() ?? false;
-    canRedo.value = viewer.viewerApi.value?.canRedo() ?? false;
-  } catch {
-    canUndo.value = false;
-    canRedo.value = false;
-  }
+  // 库先发事件、后把逆操作入栈：事件处理里同步读 canUndo() 会读到入栈前的旧值，
+  // 且之后无事件再刷新，菜单就一直显示禁用；推迟到微任务，等入栈完成后再读。
+  queueMicrotask(() => {
+    try {
+      canUndo.value = viewer.viewerApi.value?.canUndo() ?? false;
+      canRedo.value = viewer.viewerApi.value?.canRedo() ?? false;
+    } catch {
+      canUndo.value = false;
+      canRedo.value = false;
+    }
+  });
 }
 
 function revalidate(): void {
@@ -495,6 +500,56 @@ function flushCellEdits(): void {
   revalidate();
 }
 
+/**
+ * viewer 行列结构变更（插/删行列及其撤销/重做；op 为 'restore' 时是结构撤销的重放）：
+ * 结构只改 viewer 内部模型，rawRows 不会自动跟上——必须从实时模型重取数据、
+ * 重建映射并重校验，否则删掉的总计行会一直留在错误列表与提交数据里。
+ * 单元格编辑的待写回队列直接丢弃：模型里已有这些值，重解析会一并取回。
+ */
+function onStructChange(): void {
+  const current = template.value;
+  const sheet = adapted.value;
+  if (!current || !sheet || !onTemplateSheet.value) return;
+  pendingEdits.length = 0;
+  if (editTimer !== undefined) {
+    clearTimeout(editTimer);
+    editTimer = undefined;
+  }
+  const model = viewer.viewerApi.value?.getWorkbook() ?? viewer.workbook.value;
+  if (!model) return;
+  const next = resyncRowsFromModel(
+    model,
+    templateSheetIndex.value,
+    current.header_start_row - 1,
+    current.header_row_count,
+  );
+  adapted.value = next.adapted;
+  const missing = missingHeaders(current.mapping, next.adapted.header.leaves.map((leaf) => leaf.path));
+  if (missing.length) {
+    // 删掉已映射列：文件不再符合模板定义，与上传时一致，报错并停用编辑。
+    error.value = `${codeText("TEMPLATE_HEADER_MISMATCH")}。${t("import.missingHeaders", {
+      list: missing.map(pathLabel).join("、"),
+    })}`;
+    fileReady.value = false;
+    mapped.value = [];
+    mappedSources.value = [];
+    cleaned.value = [];
+    indexedErrors.value = [];
+    errorCells.value = new Set();
+    return;
+  }
+  // 结构撤销把表头恢复回来时，清掉之前的表头缺失报错。
+  if (!fileReady.value) error.value = "";
+  rawRows.value = next.rawRows;
+  rawRowNumbers.value = next.rowNumbers;
+  hiddenRows.value = next.hiddenRows;
+  fileReady.value = true;
+  rebuildMapped();
+  revalidate();
+  applyEditableTargets();
+  refreshUndoRedo();
+}
+
 /** 抽屉点「定位」：切回模板表（如在看其他表），滚动并选中对应格。 */
 function locateError(item: PositionedError): void {
   if (item.col == null || templateSheetIndex.value < 0) return;
@@ -594,7 +649,9 @@ async function submit(): Promise<void> {
   error.value = "";
   submitting.value = true;
   try {
-    // 提交前再覆盖一次常量值：用户可能填完值后未失焦就直接点提交。
+    // 提交前先把未落盘的单元格编辑刷掉（150ms 防抖窗口内直接点提交会丢改动），
+    // 再覆盖一次常量值：用户可能填完值后未失焦就直接点提交。
+    flushCellEdits();
     applyConstantOverrides();
     if (current.strategy === "REPLACE_SCOPE" && !(await confirmScope(current))) return;
     const payload = mapped.value.map((row) => ({ ...row.values, _row: row.row_no }));
@@ -728,6 +785,7 @@ async function submit(): Promise<void> {
         height="100%"
         @selection-change="onSelection"
         @cell-change="onCellChange"
+        @struct-change="onStructChange"
         @sheet-change="onSheetChange"
         @viewer-ready="onViewerReady"
         @error="onViewerError"

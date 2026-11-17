@@ -13,10 +13,10 @@
  * 下标约定：viewer / 库模型一律 0 基；rowNo（Excel 行号）一律 1 基；
  * 叶子路径用 "\u0000" 连接，与 features/mapping/apply.ts 一致。
  */
-import type { MergeRange } from "ooxml-excel-editor/core";
+import type { MergeRange, WorkbookModel } from "ooxml-excel-editor/core";
 
-import type { AdaptedSheet } from "@/features/excel-viewer/modelAdapter";
-import { applyMapping, type MappedRow } from "@/features/mapping/apply";
+import { modelToParsedSheet, type AdaptedSheet } from "@/features/excel-viewer/modelAdapter";
+import { applyMapping, trimDataRows, type MappedRow } from "@/features/mapping/apply";
 import type { CellError } from "@/features/rules/execute";
 import type { Mapping } from "@/lib/types";
 
@@ -64,6 +64,33 @@ export function expandMappedRows(
     }
   });
   return { rows, sources };
+}
+
+/**
+ * 从 viewer 实时模型重取数据行（结构变更后调用）：按当前模型重算表头与行，
+ * 再去掉尾部空行；返回的新 adapted / rawRows / rowNumbers 与上传时同一口径，
+ * 调用方据此重展开映射并重校验，错误列表与行数即跟上最新结构。
+ * 注意：调用方应在重取前丢弃待写回的单元格编辑——模型里已有这些值，重解析会一并取回。
+ */
+export function resyncRowsFromModel(
+  model: WorkbookModel,
+  sheetIndex: number,
+  headerStartRow: number,
+  headerRowCount: number,
+): {
+  adapted: AdaptedSheet;
+  rawRows: Record<string, unknown>[];
+  rowNumbers: number[];
+  hiddenRows: number;
+} {
+  const adapted = modelToParsedSheet(model, sheetIndex, headerStartRow, headerRowCount);
+  const rawRows = trimDataRows(adapted.rows);
+  return {
+    adapted,
+    rawRows,
+    rowNumbers: adapted.rowNumbers.slice(0, rawRows.length),
+    hiddenRows: adapted.hiddenRows,
+  };
 }
 
 /** viewer 单元格编辑的解析结果：被改动的叶子路径与受影响的目标列。 */

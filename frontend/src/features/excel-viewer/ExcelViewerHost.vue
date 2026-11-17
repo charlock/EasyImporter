@@ -24,6 +24,7 @@
     @rendered="onRendered"
     @selection-change="onSelectionChange"
     @cell-change="onCellChange"
+    @struct-change="onStructChange"
     @sheet-change="onSheetChange"
     @error="onError"
   >
@@ -42,6 +43,7 @@ import type {
   CellChangePayload,
   ExcelPlugin,
   MergeRange,
+  StructChangePayload,
   ViewerApi,
   ViewerTheme,
   WorkbookModel,
@@ -65,6 +67,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   "selection-change": [payload: { range: MergeRange; active: { row: number; col: number } }];
   "cell-change": [payload: CellChangePayload];
+  /** 行列结构变更（插/删行列及其撤销/重做）：宿主只转发，是否重取数据由页面决定。 */
+  "struct-change": [payload: StructChangePayload];
   "sheet-change": [payload: { index: number; name: string }];
   rendered: [workbook: WorkbookModel];
   error: [message: string];
@@ -138,6 +142,10 @@ function onSelectionChange(payload: {
 
 function onCellChange(payload: CellChangePayload): void {
   emit("cell-change", payload);
+}
+
+function onStructChange(payload: StructChangePayload): void {
+  emit("struct-change", payload);
 }
 
 function onSheetChange(payload: { index: number; name: string }): void {

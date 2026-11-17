@@ -6,7 +6,8 @@ import { parseWorkbook } from "ooxml-excel-editor/core";
 
 import { modelToParsedSheet, type AdaptedSheet } from "@/features/excel-viewer/modelAdapter";
 import { applyMapping } from "@/features/mapping/apply";
-import type { Mapping } from "@/lib/types";
+import { validateRow } from "@/features/rules/execute";
+import type { ColumnRule, Mapping } from "@/lib/types";
 import {
   applyCellEditToRawRows,
   collectErrorPositions,
@@ -14,6 +15,7 @@ import {
   expandMappedRows,
   normalizeCellValue,
   pathKey,
+  resyncRowsFromModel,
   resolveCellEdit,
   resolveErrorCell,
   resolveErrorCellByRow,
@@ -69,6 +71,132 @@ function unpivotMapping(skipEmpty: boolean): Mapping {
     constants: [{ db_column: "period", value: "2026-01" }],
   };
 }
+
+/** 带尾部总计行的样例：与 sample.xlsx 同结构，第 6 行为总计行（水单号/公司为空、1 月销售额写“总计”）。 */
+const TOTAL_PATH = join(
+  process.env.HOME ?? "",
+  "workspace/easyimporter-local-verify/verify/sample-total.xlsx",
+);
+
+function totalBuffer(): ArrayBuffer {
+  const buf = readFileSync(TOTAL_PATH);
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+}
+
+async function totalSheet(): Promise<AdaptedSheet> {
+  const model = await parseWorkbook(totalBuffer());
+  return modelToParsedSheet(model, 0, 0, 2);
+}
+
+/** 删总计行错误消失：重取后行数/行号跟上最新结构，必填错误随之消失。 */
+const REQUIRED_RULES: ColumnRule[] = [
+  { db_column: "serial_no", type: "string", precision: null, scale: null, required: true, default: null, max_length: null, enum: null, pattern: null },
+  { db_column: "company", type: "string", precision: null, scale: null, required: true, default: null, max_length: null, enum: null, pattern: null },
+  { db_column: "sales_jan", type: "decimal", precision: null, scale: null, required: false, default: null, max_length: null, enum: null, pattern: null },
+  { db_column: "profit_jan", type: "decimal", precision: null, scale: null, required: false, default: null, max_length: null, enum: null, pattern: null },
+  { db_column: "sales_feb", type: "decimal", precision: null, scale: null, required: false, default: null, max_length: null, enum: null, pattern: null },
+  { db_column: "profit_feb", type: "decimal", precision: null, scale: null, required: false, default: null, max_length: null, enum: null, pattern: null },
+];
+
+function validateAll(
+  rows: Record<string, unknown>[],
+  rowNumbers: number[],
+  mapping: Mapping,
+  rules: ColumnRule[],
+) {
+  const errors: { row_no: number; column: string; code: string }[] = [];
+  for (let i = 0; i < rows.length; i += 1) {
+    const expanded = expandMappedRows(rows[i]!, mapping, rowNumbers[i]!);
+    for (const row of expanded.rows) {
+      for (const err of validateRow(rules, row.values, row.row_no).errors) errors.push(err);
+    }
+  }
+  return errors;
+}
+
+describe("resyncRowsFromModel（删行后重取重校验）", () => {
+  it("总计行在：重取得到 4 行，行号 3-6", async () => {
+    const model = await parseWorkbook(totalBuffer());
+    const next = resyncRowsFromModel(model, 0, 0, 2);
+    expect(next.rawRows).toHaveLength(4);
+    expect(next.rowNumbers).toEqual([3, 4, 5, 6]);
+    expect(next.rawRows[3]![pathKey(["1月份", "销售额"])]).toBe("总计");
+  });
+
+  it("删总计行：重取后只剩 3 行，行号 3-5，提交数据与最新行一致", async () => {
+    const model = await parseWorkbook(totalBuffer());
+    const sheet = model.sheets[0]!;
+    // 模拟 viewer 删行后的模型：第 6 行（0 基第 5 行）的格子没了，dimension 收缩。
+    for (let col = 0; col < sheet.dimension.cols; col += 1) sheet.cells.delete(`5:${col}`);
+    sheet.dimension.rows = 6;
+    const next = resyncRowsFromModel(model, 0, 0, 2);
+    expect(next.rawRows).toHaveLength(3);
+    expect(next.rowNumbers).toEqual([3, 4, 5]);
+    expect(next.rawRows.map((row) => row[pathKey(["水单号"])])).toEqual(["S001", "S002", "S003"]);
+    expect(next.rawRows.some((row) => row[pathKey(["1月份", "销售额"])] === "总计")).toBe(false);
+  });
+
+  it("删总计行错误消失：删前 #6 两条必填错误，删后 0 错误", async () => {
+    const model = await parseWorkbook(totalBuffer());
+    const before = resyncRowsFromModel(model, 0, 0, 2);
+    const errorsBefore = validateAll(before.rawRows, before.rowNumbers, PLAIN_MAPPING, REQUIRED_RULES);
+    // 总计行：serial_no/company 为空（REQUIRED），1 月销售额写了“总计”文本（TYPE_MISMATCH）。
+    expect(errorsBefore).toEqual([
+      { row_no: 6, column: "serial_no", code: "REQUIRED", params: {} },
+      { row_no: 6, column: "company", code: "REQUIRED", params: {} },
+      { row_no: 6, column: "sales_jan", code: "TYPE_MISMATCH", params: {} },
+    ]);
+    const sheet = model.sheets[0]!;
+    for (let col = 0; col < sheet.dimension.cols; col += 1) sheet.cells.delete(`5:${col}`);
+    sheet.dimension.rows = 6;
+    const after = resyncRowsFromModel(model, 0, 0, 2);
+    expect(validateAll(after.rawRows, after.rowNumbers, PLAIN_MAPPING, REQUIRED_RULES)).toEqual([]);
+  });
+
+  it("改格后重校验：改成非法值出 TYPE_MISMATCH，改回合法值错误消失", async () => {
+    const adapted = await sampleSheet();
+    const illegal = applyCellEditToRawRows(
+      adapted.rows,
+      adapted.rowNumbers,
+      3,
+      pathKey(["1月份", "销售额"]),
+      "abc",
+    )!;
+    expect(
+      validateAll(illegal, adapted.rowNumbers, PLAIN_MAPPING, REQUIRED_RULES).map((e) => e.code),
+    ).toEqual(["TYPE_MISMATCH"]);
+    const fixed = applyCellEditToRawRows(
+      illegal,
+      adapted.rowNumbers,
+      3,
+      pathKey(["1月份", "销售额"]),
+      1000.5,
+    )!;
+    expect(validateAll(fixed, adapted.rowNumbers, PLAIN_MAPPING, REQUIRED_RULES)).toEqual([]);
+  });
+
+  it("改格后重校验：必填列清空出 REQUIRED，填回后错误消失", async () => {
+    const adapted = await sampleSheet();
+    const cleared = applyCellEditToRawRows(
+      adapted.rows,
+      adapted.rowNumbers,
+      3,
+      pathKey(["水单号"]),
+      "",
+    )!;
+    expect(
+      validateAll(cleared, adapted.rowNumbers, PLAIN_MAPPING, REQUIRED_RULES),
+    ).toEqual([{ row_no: 3, column: "serial_no", code: "REQUIRED", params: {} }]);
+    const restored = applyCellEditToRawRows(
+      cleared,
+      adapted.rowNumbers,
+      3,
+      pathKey(["水单号"]),
+      "S001",
+    )!;
+    expect(validateAll(restored, adapted.rowNumbers, PLAIN_MAPPING, REQUIRED_RULES)).toEqual([]);
+  });
+});
 
 describe("expandMappedRows", () => {
   it("非拆行：与 applyMapping 一致，来源全为 null", async () => {

@@ -183,6 +183,7 @@ class ImportTask(Base):
     strategy: Mapped[str] = mapped_column(String(16), nullable=False)
     operator_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=QUEUED, index=True)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     file_path: Mapped[str] = mapped_column(Text, nullable=False, default="")
     rows_path: Mapped[str] = mapped_column(Text, nullable=False, default="")
     report_path: Mapped[str] = mapped_column(Text, nullable=False, default="")

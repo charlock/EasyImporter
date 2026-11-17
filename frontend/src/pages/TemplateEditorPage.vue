@@ -110,6 +110,93 @@
     />
   </div>
   <div v-else class="mt-4 space-y-4">
+    <!-- 新建/编辑入口：先选/上传样例，再做基础配置；样例上传后自动进入正常编辑器视图 -->
+    <div v-if="showEntry" class="space-y-6 rounded-lg border p-6">
+      <div>
+        <h2 class="text-lg font-semibold">
+          {{ pageModel.state === "S2" ? t("template.entryTitleNew") : t("template.entryTitleEdit") }}
+        </h2>
+        <p v-if="pageModel.state === 'S3'" class="mt-1 text-sm text-muted-foreground">
+          {{ t("template.entryKeepData") }}
+        </p>
+      </div>
+
+      <section class="space-y-2">
+        <h3 class="text-sm font-medium">
+          {{ pageModel.state === "S3" ? t("template.entryStep1Replace") : t("template.entryStep1") }}
+        </h3>
+        <p class="text-sm text-muted-foreground">{{ t("template.entryStep1Hint") }}</p>
+        <label
+          class="inline-flex h-9 cursor-pointer items-center rounded-md border px-3 text-sm hover:bg-accent"
+        >
+          <Upload class="mr-1 h-4 w-4" />{{ t("template.uploadSample") }}
+          <input type="file" accept=".xlsx" class="hidden" @change="onSample" />
+        </label>
+      </section>
+
+      <Separator />
+
+      <section class="space-y-3">
+        <h3 class="text-sm font-medium">{{ t("template.entryStep2") }}</h3>
+        <p class="text-sm text-muted-foreground">{{ t("template.entryStep2Hint") }}</p>
+        <div class="grid max-w-2xl grid-cols-2 gap-3">
+          <div class="space-y-1.5">
+            <Label>{{ t("common.name") }}</Label>
+            <Input v-model="form.name" />
+          </div>
+          <div class="space-y-1.5">
+            <Label>{{ t("common.description") }}</Label>
+            <Input v-model="form.description" />
+          </div>
+          <div class="space-y-1.5">
+            <Label>{{ t("datasource.title") }}</Label>
+            <Select v-model="datasourceIdStr">
+              <SelectTrigger class="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="source in datasources" :key="source.id" :value="String(source.id)">
+                  {{ source.name }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div class="space-y-1.5">
+            <Label>{{ t("template.target") }}</Label>
+            <Select :model-value="targetSelectValue" @update:model-value="onTargetSelect">
+              <SelectTrigger class="w-full"><SelectValue placeholder="—" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="(table, index) in tables" :key="table.name" :value="String(index)">
+                  {{ table.schema ? `${table.schema}.${table.name}` : table.name }}
+                </SelectItem>
+                <SelectSeparator />
+                <SelectItem :value="AUTO_TABLE_VALUE">{{ t("template.autoTable") }}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div class="space-y-1.5">
+            <Label>{{ t("template.strategy") }}</Label>
+            <Select v-model="form.strategy">
+              <SelectTrigger class="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="APPEND">{{ t("strategy.APPEND") }}</SelectItem>
+                <SelectItem value="UPSERT">{{ t("strategy.UPSERT") }}</SelectItem>
+                <SelectItem value="REPLACE_SCOPE">{{ t("strategy.REPLACE_SCOPE") }}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div>
+          <Button variant="outline" size="sm" @click="drawerOpen = true">
+            <SlidersHorizontal class="mr-1 h-4 w-4" />{{ t("template.entryOpenConfig") }}
+          </Button>
+        </div>
+      </section>
+
+      <div class="flex justify-end">
+        <Button @click="entryDismissed = true">{{ t("template.entryEnterEditor") }}</Button>
+      </div>
+    </div>
+
+    <template v-else>
     <label
       class="flex min-h-64 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-muted-foreground"
     >
@@ -144,6 +231,7 @@
         <option v-for="column in dbColumns" :key="column" :value="column" />
       </datalist>
     </div>
+    </template>
   </div>
 
   <!-- 设定窗：外壳见 PageDrawer（非模态、640px、顶边推到停靠栏底边之下，z-20）。 -->
@@ -411,6 +499,9 @@
           </tbody>
         </table>
         <pre class="max-h-64 overflow-auto rounded-md bg-muted p-3 text-xs">{{ ddlPreview }}</pre>
+        <p v-if="form.strategy === 'UPSERT' && !form.business_keys.length" class="text-xs text-muted-foreground">
+          {{ t("template.upsertNeedsKeys") }}
+        </p>
         <Alert v-if="tableExists" variant="destructive">
           <AlertDescription>
             {{ t("template.tableExists", { table: existingTable?.table ?? autoTableName }) }}
@@ -422,7 +513,7 @@
           {{ t("template.useExistingTable") }}
         </Button>
         <Button variant="outline" @click="ddlDialogOpen = false">{{ t("common.cancel") }}</Button>
-        <Button :disabled="creating || tableExists" @click="createTable">
+        <Button :disabled="createTableDisabled" @click="createTable">
           {{ t("template.createTable") }}
         </Button>
       </DialogFooter>
@@ -466,7 +557,7 @@
   </Dialog>
 
   <!-- 放弃未保存修改确认 -->
-  <AlertDialog :open="discardOpen" @update:open="(value) => { if (!value) resolveDiscard(false); }">
+  <AlertDialog :open="discardOpen" @update:open="onDiscardOpenChange">
     <AlertDialogContent>
       <AlertDialogHeader>
         <AlertDialogTitle>{{ t("template.discardConfirmTitle") }}</AlertDialogTitle>
@@ -551,6 +642,7 @@ import {
   computeButtonStates,
   initialModel,
   missingRequiredFields,
+  shouldShowEntry,
   transition,
   viewerEditable,
   type TemplatePageModel,
@@ -691,11 +783,21 @@ const activeTab = ref("start-row");
 const onlySelectedColumns = ref(false);
 const pendingRowFill = ref<number | null>(null);
 
+/** 入口面板是否被用户点“进入编辑器”跳过；切模板/新建时由 resetSample 复位。 */
+const entryDismissed = ref(false);
+
 /* ---------- 样例与 Viewer ---------- */
 const viewer = useExcelViewer();
 const errorCells = ref<ReadonlySet<string>>(new Set());
 const sample = ref<AdaptedSheet | null>(null);
 const sampleFileName = ref("");
+
+const showEntry = computed(() =>
+  shouldShowEntry(pageModel.value, {
+    hasSample: viewer.workbook.value != null,
+    dismissed: entryDismissed.value,
+  }),
+);
 
 const plugins = [
   createQuickImportPlugin({
@@ -757,7 +859,14 @@ const selectedDatasource = computed(
   () => datasources.value.find((source) => source.id === form.value.datasource_id) ?? null,
 );
 
-const dbColumns = computed(() => schemaColumns.value.map((column) => column.name));
+/** 业务键/范围列等复选框的候选列：已有表时取表结构；自动建表模式下表还不
+ * 存在，取推断列清单（映射列 + 常量 + 度量列 + 维度列），否则 UPSERT 的业务键
+ * 与 REPLACE_SCOPE 的范围列在自动建表模式下无从选择。 */
+const dbColumns = computed(() =>
+  autoTableMode.value
+    ? inferColumnsPayload().map((column) => column.db_column)
+    : schemaColumns.value.map((column) => column.name),
+);
 const suggestionByPath = computed(() => new Map(suggestions.value.map((item) => [pathKey(item.excel_path), item])));
 const suggestionScores = computed(() => {
   const scores = new Map<string, number>();
@@ -846,15 +955,28 @@ function askDiscard(): Promise<boolean> {
   });
 }
 function resolveDiscard(ok: boolean): void {
+  // 已结算过（例如确认点击已先结算）时不再重复结算。
+  if (discardResolve === null) return;
   discardOpen.value = false;
-  discardResolve?.(ok);
+  discardResolve(ok);
   discardResolve = null;
+}
+
+/**
+ * 对话框 open 变化：与导入页 askScope 同一竞态（见 ImportPage.vue 的
+ * onScopeOpenChange）：Radix 先触发 update:open、再触发按钮自身的 click，
+ * 立即以 false 结算会吞掉确认点击的 true；推迟到微任务再结算。
+ */
+function onDiscardOpenChange(open: boolean): void {
+  if (open) return;
+  queueMicrotask(() => resolveDiscard(false));
 }
 
 function resetSample(): void {
   sample.value = null;
   sampleFileName.value = "";
   pendingRowFill.value = null;
+  entryDismissed.value = false;
   viewer.workbook.value = null;
   viewer.sourceBuffer.value = null;
   viewer.selection.value = null;
@@ -958,7 +1080,8 @@ function enterNewDraft(): void {
   form.value = blankForm();
   savedSnapshot.value = JSON.stringify(form.value);
   pageModel.value = transition(pageModel.value, { type: "startNew" });
-  drawerOpen.value = true;
+  // 新建先呈现入口面板（选/上传样例 → 基础配置），不再自动打开配置抽屉。
+  drawerOpen.value = false;
 }
 
 async function selectTemplate(id: number): Promise<void> {
@@ -1144,6 +1267,8 @@ const onSample = (event: Event) =>
     const inEdit = pageModel.value.state === "S2" || pageModel.value.state === "S3";
     adaptSheet(sheetIdx, inEdit);
     await resuggest(inEdit);
+    // 样例已挂上：入口面板收起，进入正常编辑器视图。
+    entryDismissed.value = true;
   });
 
 const onSheetChange = (payload: { index: number; name: string }) =>
@@ -1265,6 +1390,13 @@ function inferColumnsPayload(): { db_column: string; samples: unknown[] }[] {
   }
   const unpivot = form.value.mapping.unpivot;
   if (unpivot) {
+    // 维度列也是目标表的一列（后端 validate_template 按 mapped_columns 校验，
+    // 维度列在其中）：不带它建出的表缺该列，保存时报 TEMPLATE_INVALID。
+    // 样本取各分组的维度值；名字若已在清单里则跳过，后端 infer 遇重名会直接报错。
+    const dimension = unpivot.dimension_column.trim();
+    if (dimension && !columns.some((item) => item.db_column === dimension)) {
+      columns.push({ db_column: dimension, samples: unpivot.groups.map((group) => group.dimension_value) });
+    }
     for (const measure of unpivot.measures) {
       if (!measure.db_column.trim()) continue;
       const samples: unknown[] = [];
@@ -1280,10 +1412,21 @@ function inferColumnsPayload(): { db_column: string; samples: unknown[] }[] {
 const canPreviewDdl = computed(() => {
   if (!autoTableMode.value || !form.value.datasource_id) return false;
   if (selectedDatasource.value?.db_type !== "postgres") return false;
-  if (form.value.strategy === "UPSERT" && form.value.business_keys.length === 0) return false;
+  // UPSERT 未选业务键时也放开预览（infer 本身不建表，无业务键也能出 DDL）；
+  // 真正建表仍被对话框里的「建表」按钮拦住（见 createTableDisabled），避免
+  // 建出没有唯一约束的表、保存时再报 UNIQUE_KEY_REQUIRED。
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(autoTableName.value)) return false;
   return inferColumnsPayload().length > 0;
 });
+
+/** 对话框里「建表」按钮的禁用条件：UPSERT 没有业务键时不许建表，否则建出的表
+ * 没有唯一约束、保存模板时再报 UNIQUE_KEY_REQUIRED，还留下一张孤表。 */
+const createTableDisabled = computed(
+  () =>
+    creating.value ||
+    tableExists.value ||
+    (form.value.strategy === "UPSERT" && form.value.business_keys.length === 0),
+);
 
 const previewHint = computed(() => {
   if (!autoTableMode.value) return "";

@@ -62,10 +62,15 @@ def _version(db: Session, template: Template) -> TemplateVersion | None:
 
 
 @router.get("/workspaces/{workspace_id}/templates", response_model=list[TemplateOut])
-def list_templates(workspace_id: int, user: User = Depends(current_user), db: Session = Depends(get_session)):
+def list_templates(workspace_id: int, include_archived: bool = False,
+                   user: User = Depends(current_user), db: Session = Depends(get_session)):
+    """默认只列未归档模板；模板列表页传 include_archived=true 以便删除后仍能看到
+    已归档行（带“已归档”徽章）。模板下拉等其他调用方不传参，行为不变。"""
     ensure_member(db, user, workspace_id)
-    templates = db.scalars(select(Template).where(Template.workspace_id == workspace_id,
-                                                   Template.is_archived.is_(False)).order_by(Template.id)).all()
+    query = select(Template).where(Template.workspace_id == workspace_id)
+    if not include_archived:
+        query = query.where(Template.is_archived.is_(False))
+    templates = db.scalars(query.order_by(Template.id)).all()
     return [_out(item, _version(db, item)) for item in templates]
 
 
@@ -85,11 +90,18 @@ def create_template(workspace_id: int, payload: TemplateIn, user: User = Depends
 
 
 @router.get("/workspaces/{workspace_id}/templates/{template_id}", response_model=TemplateOut)
-def get_template(workspace_id: int, template_id: int, user: User = Depends(current_user),
-                 db: Session = Depends(get_session)):
+def get_template(workspace_id: int, template_id: int, version: int | None = None,
+                 user: User = Depends(current_user), db: Session = Depends(get_session)):
+    """默认返回当前版本；传 version 则返回该历史版本（模板每次保存都产生新版本，
+    历史版本保留在 template_versions 表里）。导入详情页用它取任务提交时的映射。"""
     ensure_member(db, user, workspace_id)
     template = _template(db, workspace_id, template_id)
-    return _out(template, _version(db, template))
+    if version is None:
+        return _out(template, _version(db, template))
+    wanted = db.get(TemplateVersion, (template.id, version))
+    if wanted is None:
+        raise ApiError("NOT_FOUND")
+    return _out(template, wanted)
 
 
 @router.put("/workspaces/{workspace_id}/templates/{template_id}", response_model=TemplateOut)

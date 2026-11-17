@@ -27,6 +27,7 @@ ERRORS: dict[str, tuple[int, str]] = {
     "IMPORT_FILES_EXPIRED": (410, "原始文件已超过保留期被清理，不能重新执行"),
     "IMPORT_NOT_RETRYABLE": (409, "当前任务状态不允许重新执行"),
     "IMPORT_NOT_RESOLVABLE": (409, "只有状态未知的任务需要人工核对"),
+    "IMPORT_NOT_DELETABLE": (409, "当前任务状态不允许删除，只有终态任务和未被认领的排队任务可以删除"),
     "ROW_COUNT_MISMATCH": (422, "提交的行数与声明不一致"),
     "LOGIN_LOCKED": (429, "登录失败次数过多，账号已临时锁定"),
     "LOGIN_FAILED": (401, "用户名或密码错误"),

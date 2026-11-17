@@ -267,6 +267,7 @@ class ImportOut(BaseModel):
     template_id: int
     template_version: int
     operator: str = ""
+    file_name: str = ""
     target_table: str = ""
     strategy: str = ""
     row_count: int = 0

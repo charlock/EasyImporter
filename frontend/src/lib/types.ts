@@ -154,6 +154,8 @@ export interface ImportTask {
   template_id: number;
   template_version: number;
   operator: string;
+  /** 提交时上传的源文件名（后端 0002 迁移新增列；老记录为空）。 */
+  file_name: string;
   target_table: string;
   strategy: Strategy | "";
   row_count: number;

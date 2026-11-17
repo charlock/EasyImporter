@@ -31,7 +31,7 @@ interface RequestOptions {
   method?: string;
   body?: unknown;
   form?: FormData;
-  query?: Record<string, string | number | undefined>;
+  query?: Record<string, string | number | boolean | undefined>;
 }
 
 async function requestOnce<T>(path: string, options: RequestOptions, retried: boolean): Promise<T> {
@@ -99,6 +99,19 @@ export const api = {
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   upload: <T>(path: string, form: FormData) => request<T>(path, { method: "POST", form }),
 };
+
+/** 取回一个受会话保护的文件内容（不触发下载），供只读预览等场景使用。 */
+export async function fetchBlob(path: string): Promise<Blob> {
+  const response = await fetch(`${API_PREFIX}${path}`, { credentials: "same-origin" });
+  if (!response.ok) {
+    const text = await response.text();
+    const error = text
+      ? (JSON.parse(text) as ApiErrorBody)
+      : { code: "UNKNOWN", message: response.statusText };
+    throw new ApiError(response.status, error);
+  }
+  return response.blob();
+}
 
 /** 触发浏览器下载一个受会话保护的文件。 */
 export async function download(path: string, filename: string): Promise<void> {

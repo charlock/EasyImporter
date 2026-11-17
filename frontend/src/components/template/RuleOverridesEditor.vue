@@ -18,12 +18,15 @@ const props = defineProps<{ modelValue: RuleOverride[]; columns: string[] }>();
 const emit = defineEmits<{ "update:modelValue": [value: RuleOverride[]] }>();
 const { t } = useI18n();
 
+/** “未选择”的哨兵值：Radix SelectItem 不接受空字符串 value，用它代替 ""。 */
+const NONE_VALUE = "__none__";
+
 function set(index: number, patch: Partial<RuleOverride>): void {
   emit("update:modelValue", props.modelValue.map((item, i) => (i === index ? { ...item, ...patch } : item)));
 }
 
 function setRequired(index: number, raw: string): void {
-  set(index, { required: raw === "" ? null : raw === "true" });
+  set(index, { required: raw === NONE_VALUE ? null : raw === "true" });
 }
 
 function setEnum(index: number, raw: string): void {
@@ -60,23 +63,23 @@ function setMaxLength(index: number, raw: string | number): void {
         <tbody>
           <tr v-for="(item, index) in modelValue" :key="index" class="border-b last:border-0">
             <td class="px-2 py-1 align-middle">
-              <Select :model-value="item.db_column" @update:model-value="set(index, { db_column: String($event) })">
+              <Select :model-value="item.db_column === '' ? NONE_VALUE : item.db_column" @update:model-value="set(index, { db_column: $event === NONE_VALUE ? '' : String($event) })">
                 <SelectTrigger class="min-w-24">
                   <SelectValue placeholder="—" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">—</SelectItem>
+                  <SelectItem :value="NONE_VALUE">—</SelectItem>
                   <SelectItem v-for="column in columns" :key="column" :value="column">{{ column }}</SelectItem>
                 </SelectContent>
               </Select>
             </td>
             <td class="px-2 py-1 align-middle">
-              <Select :model-value="item.required == null ? '' : String(item.required)" @update:model-value="setRequired(index, String($event))">
+              <Select :model-value="item.required == null ? NONE_VALUE : String(item.required)" @update:model-value="setRequired(index, String($event))">
                 <SelectTrigger class="min-w-16">
                   <SelectValue placeholder="—" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">—</SelectItem>
+                  <SelectItem :value="NONE_VALUE">—</SelectItem>
                   <SelectItem value="true">✓</SelectItem>
                   <SelectItem value="false">✗</SelectItem>
                 </SelectContent>

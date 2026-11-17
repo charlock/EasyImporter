@@ -122,3 +122,15 @@ export function missingRequiredFields(form: {
 export function viewerEditable(model: TemplatePageModel): boolean {
   return model.state === "S2" || model.state === "S3";
 }
+
+/**
+ * 新建/编辑入口面板是否展示：新建/编辑态、尚未挂样例、用户未点“进入编辑器”跳过时展示。
+ * S1 查看态不展示（仍为只读旧视图）；样例一旦上传即进入正常编辑器视图。
+ */
+export function shouldShowEntry(
+  model: TemplatePageModel,
+  opts: { hasSample: boolean; dismissed: boolean },
+): boolean {
+  const inEdit = model.state === "S2" || model.state === "S3";
+  return inEdit && !opts.hasSample && !opts.dismissed;
+}

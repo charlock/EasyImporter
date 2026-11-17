@@ -1,13 +1,14 @@
 """导入任务：提交、查询、取消、重试、人工核对、范围预估、错误报告。"""
 
 import gzip
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import FileResponse
 from openpyxl import Workbook
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.connectors.pool import get_target
@@ -26,11 +27,13 @@ from app.models.entities import (
     QUEUED,
     RUNNING,
     SUCCEEDED,
+    TERMINAL_STATUSES,
     UNKNOWN,
     Datasource,
     ImportError,
     ImportLog,
     ImportTask,
+    TableLock,
     Template,
     TemplateVersion,
     User,
@@ -54,7 +57,8 @@ XLSX_MAGIC = b"PK"
 def _out(task: ImportTask, operator: str = "") -> ImportOut:
     return ImportOut(
         id=task.id, status=task.status, template_id=task.template_id,
-        template_version=task.template_version, operator=operator, target_table=task.target_table,
+        template_version=task.template_version, operator=operator, file_name=task.file_name,
+        target_table=task.target_table,
         strategy=task.strategy, row_count=task.row_count, processed=task.processed,
         inserted=task.inserted, updated=task.updated, deleted=task.deleted,
         counts_exact=task.counts_exact, error_count=task.error_count, failure_code=task.failure_code,
@@ -96,7 +100,7 @@ def submit_import(
         workspace_id=workspace_id, template_id=template.id, template_version=payload.template_version,
         datasource_id=version.datasource_id, target_schema=version.target_schema,
         target_table=version.target_table, strategy=version.strategy, operator_id=user.id,
-        row_count=payload.row_count,
+        file_name=file.filename or "", row_count=payload.row_count,
     )
     db.add(task)
     db.flush()
@@ -177,6 +181,70 @@ def get_import(workspace_id: int, import_id: int, user: User = Depends(current_u
     task = _task(db, workspace_id, import_id)
     operator = db.get(User, task.operator_id)
     return _out(task, operator.username if operator else "")
+
+
+@router.delete("/workspaces/{workspace_id}/imports/{import_id}")
+def delete_import(workspace_id: int, import_id: int, user: User = Depends(require_admin_write),
+                  db: Session = Depends(get_session)):
+    """删除导入记录：仅管理员；仅终态（SUCCEEDED / FAILED / CANCELLED / UNKNOWN）
+    与未被认领的 QUEUED 可删。RUNNING / COMMITTING 与已被 worker 认领的 QUEUED
+    拒绝 409。任务行用带状态条件的删除：状态在检查与删除之间被推进时删 0 行，
+    整个事务回滚，避免删掉正在执行的任务。"""
+    ensure_member(db, user, workspace_id)
+    task = _task(db, workspace_id, import_id)
+    shared_paths = _shared_paths(db, task)
+    db.query(ImportLog).filter(ImportLog.import_id == task.id).delete()
+    db.query(ImportError).filter(ImportError.import_id == task.id).delete()
+    db.query(TableLock).filter(TableLock.import_id == task.id).delete()
+    # 重试副本的 retry_of 指向本任务：先置空，避免外键阻止删除。
+    db.query(ImportTask).filter(ImportTask.retry_of == task.id).update({"retry_of": None})
+    removed = db.query(ImportTask).filter(
+        ImportTask.id == task.id,
+        or_(ImportTask.status.in_(TERMINAL_STATUSES),
+            and_(ImportTask.status == QUEUED, ImportTask.worker_id == "")),
+    ).delete(synchronize_session=False)
+    if removed == 0:
+        db.rollback()
+        current = db.get(ImportTask, import_id)
+        raise ApiError("IMPORT_NOT_DELETABLE",
+                       {"status": current.status if current is not None else task.status})
+    db.commit()
+    _remove_task_files(task, shared_paths)
+    return {"ok": True}
+
+
+def _shared_paths(db: Session, task: ImportTask) -> set[str]:
+    """被其他任务（重试副本共用同一份文件）引用的磁盘路径，删除时不动。"""
+    shared: set[str] = set()
+    for raw in (task.file_path, task.rows_path, task.report_path):
+        if not raw:
+            continue
+        others = db.scalar(select(func.count()).select_from(ImportTask).where(
+            or_(ImportTask.file_path == raw, ImportTask.rows_path == raw,
+                ImportTask.report_path == raw),
+            ImportTask.id != task.id))
+        if others:
+            shared.add(raw)
+    return shared
+
+
+def _remove_task_files(task: ImportTask, shared_paths: set[str]) -> None:
+    """删任务的磁盘文件（源文件、行数据、报告），不存在时不报错。
+    源文件未被共用时整个任务目录（含按需生成的错误报告）一并删除；
+    共用时只删本任务独占的路径。"""
+    if task.file_path and task.file_path not in shared_paths:
+        directory = Path(task.file_path).parent
+        if (directory.name == str(task.id)
+                and directory.parent == Path(get_settings().upload_dir)):
+            shutil.rmtree(directory, ignore_errors=True)
+            return
+    for raw in (task.file_path, task.rows_path, task.report_path):
+        if not raw or raw in shared_paths:
+            continue
+        try:
+            Path(raw).unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 @router.get("/workspaces/{workspace_id}/imports/{import_id}/logs", response_model=list[ImportLogOut])
@@ -265,7 +333,8 @@ def retry_import(workspace_id: int, import_id: int, user: User = Depends(current
     clone = ImportTask(
         workspace_id=workspace_id, template_id=task.template_id, template_version=task.template_version,
         datasource_id=task.datasource_id, target_schema=task.target_schema, target_table=task.target_table,
-        strategy=task.strategy, operator_id=user.id, file_path=task.file_path, rows_path=task.rows_path,
+        strategy=task.strategy, operator_id=user.id, file_name=task.file_name,
+        file_path=task.file_path, rows_path=task.rows_path,
         row_count=task.row_count, retry_of=task.id,
     )
     db.add(clone)

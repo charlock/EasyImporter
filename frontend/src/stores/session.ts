@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 
-import { api, setCsrfToken } from "@/api/client";
+import { api, resetSessionExpiredNotified, setCsrfToken } from "@/api/client";
 import type { Me, Workspace } from "@/lib/types";
 
 export const useSession = defineStore("session", () => {
@@ -16,6 +16,7 @@ export const useSession = defineStore("session", () => {
       me.value = await api.get<Me>("/auth/me");
       setCsrfToken(me.value.csrf_token);
       workspaces.value = await api.get<Workspace[]>("/workspaces");
+      resetSessionExpiredNotified();
     } catch {
       me.value = null;
       workspaces.value = [];
@@ -28,6 +29,7 @@ export const useSession = defineStore("session", () => {
     me.value = await api.post<Me>("/auth/login", { username, password });
     setCsrfToken(me.value.csrf_token);
     workspaces.value = await api.get<Workspace[]>("/workspaces");
+    resetSessionExpiredNotified();
     return me.value;
   }
 

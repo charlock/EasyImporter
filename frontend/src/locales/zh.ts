@@ -8,6 +8,7 @@ export default {
     mustChange: "首次登录需要修改密码",
     confirmPassword: "确认新密码", passwordMismatch: "两次输入的新密码不一致",
     passwordTooShort: "新密码至少 8 位", passwordChanged: "密码已修改，请用新密码重新登录",
+    sessionExpired: "会话已过期，请重新登录",
   },
   common: {
     save: "保存", cancel: "取消", delete: "删除", confirm: "确认", create: "新建", close: "关闭",

@@ -27,6 +27,37 @@ export function getCsrfToken(): string {
   return csrfToken;
 }
 
+/** 会话过期回调：会话过期（401 UNAUTHORIZED）时只通知一次。 */
+let sessionExpiredHandler: (() => void) | null = null;
+let sessionExpiredNotified = false;
+
+/** 注册会话过期回调，由 main.ts 在应用启动后注册一次。 */
+export function setSessionExpiredHandler(handler: (() => void) | null): void {
+  sessionExpiredHandler = handler;
+}
+
+/** 登录或会话刷新成功后调用，允许下一次过期再次通知。 */
+export function resetSessionExpiredNotified(): void {
+  sessionExpiredNotified = false;
+}
+
+function notifySessionExpired(): void {
+  if (sessionExpiredNotified) return;
+  sessionExpiredNotified = true;
+  sessionExpiredHandler?.();
+}
+
+/**
+ * 401 UNAUTHORIZED 即会话过期（无 Cookie、会话不存在或 8 小时闲置过期）。
+ * 例外：/auth/login 的 401 是 LOGIN_FAILED（用户名或密码错），/auth/me 的
+ * 401 由路由守卫处理（session.load 失败即视为未登录），两者都不在这里通知。
+ */
+function notifyIfSessionExpired(status: number, code: string, path: string): void {
+  if (status === 401 && code === "UNAUTHORIZED" && path !== "/auth/login" && path !== "/auth/me") {
+    notifySessionExpired();
+  }
+}
+
 interface RequestOptions {
   method?: string;
   body?: unknown;
@@ -68,6 +99,7 @@ async function requestOnce<T>(path: string, options: RequestOptions, retried: bo
   const parsed = text ? (JSON.parse(text) as unknown) : undefined;
   if (!response.ok) {
     const error = (parsed ?? { code: "UNKNOWN", message: response.statusText }) as ApiErrorBody;
+    notifyIfSessionExpired(response.status, error.code, path);
     if (!retried && response.status === 403 && error.code === "CSRF_INVALID") {
       // token 可能已漂移（例如多会话登录后 /me 曾返回别的会话的 token）：
       // 重新拉 /me 取当前会话的 token 再试一次。403 表示服务端在依赖层
@@ -108,6 +140,7 @@ export async function fetchBlob(path: string): Promise<Blob> {
     const error = text
       ? (JSON.parse(text) as ApiErrorBody)
       : { code: "UNKNOWN", message: response.statusText };
+    notifyIfSessionExpired(response.status, error.code, path);
     throw new ApiError(response.status, error);
   }
   return response.blob();
@@ -121,6 +154,7 @@ export async function download(path: string, filename: string): Promise<void> {
     const error = text
       ? (JSON.parse(text) as ApiErrorBody)
       : { code: "UNKNOWN", message: response.statusText };
+    notifyIfSessionExpired(response.status, error.code, path);
     throw new ApiError(response.status, error);
   }
   const blob = await response.blob();

@@ -1,17 +1,19 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { resolveLoginRedirect } from "@/lib/auth";
 import { errorMessage } from "@/lib/errors";
 import { useSession } from "@/stores/session";
 
 const session = useSession();
+const route = useRoute();
 const router = useRouter();
 const { t } = useI18n();
 
@@ -20,12 +22,17 @@ const password = ref("");
 const error = ref("");
 const submitting = ref(false);
 
+/** 从其它页面因会话过期跳过来时，提示重新登录。 */
+const sessionExpired = computed(() => route.query.expired === "1");
+
 async function submit(): Promise<void> {
   error.value = "";
   submitting.value = true;
   try {
     const me = await session.login(username.value.trim(), password.value);
-    await router.push(me.must_change_password ? "/password" : "/");
+    await router.push(
+      me.must_change_password ? "/password" : resolveLoginRedirect(route.query.redirect),
+    );
   } catch (caught) {
     error.value = errorMessage(caught);
   } finally {
@@ -57,6 +64,9 @@ async function submit(): Promise<void> {
               required
             />
           </div>
+          <Alert v-if="sessionExpired">
+            <AlertDescription>{{ t("auth.sessionExpired") }}</AlertDescription>
+          </Alert>
           <Alert v-if="error" variant="destructive">
             <AlertDescription>{{ error }}</AlertDescription>
           </Alert>

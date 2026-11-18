@@ -9,6 +9,7 @@ export default {
     confirmPassword: "Confirm new password", passwordMismatch: "The new passwords do not match",
     passwordTooShort: "The new password needs at least 8 characters",
     passwordChanged: "Password changed. Sign in again with the new password",
+    sessionExpired: "Your session expired. Please sign in again.",
   },
   common: {
     save: "Save", cancel: "Cancel", delete: "Delete", confirm: "Confirm", create: "New", close: "Close",

@@ -42,7 +42,8 @@ router.beforeEach(async (to) => {
   const session = useSession();
   if (!session.ready) await session.load();
   if (to.path === "/login") return session.me ? "/" : true;
-  if (!session.me) return "/login";
+  // 未登录时记住去向，登录成功后回原页面。
+  if (!session.me) return { path: "/login", query: { redirect: to.fullPath } };
   // 后端不拦截首次登录未改密的用户，由前端强制先改密。
   if (session.me.must_change_password && to.path !== "/password") return "/password";
   if (to.meta.admin && !session.isAdmin) return "/";

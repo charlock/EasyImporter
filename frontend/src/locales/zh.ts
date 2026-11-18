@@ -92,7 +92,7 @@ export default {
     rowApplied: "已将第 {n} 行设为数据开始行", saveDisabled: "请先完善必填项并作出修改",
     saveDisabledMissing: "还缺：{list}", saveNoChanges: "没有可保存的修改",
     requireInput: "导入时输入", constantDefault: "默认值（可选）",
-    missingTitle: "待完善", missing: { name: "名称", datasource: "数据源", targetTable: "目标表", mapping: "映射列" },
+    missingTitle: "待完善", missing: { name: "名称", datasource: "数据源", targetTable: "目标表", mapping: "映射列", businessKeys: "业务键" },
     tableExists: "目标表 {table} 已存在", useExistingTable: "使用已存在表",
     saveProgressTitle: "正在保存模板", saveStepCreateTable: "创建数据表",
     saveStepSaveTemplate: "保存模板", saveStepTableCreated: "已创建 {table}（{n} 列）",

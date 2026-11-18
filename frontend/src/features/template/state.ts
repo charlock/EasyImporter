@@ -100,13 +100,15 @@ export function computeButtonStates(
 }
 
 /** 保存必填项缺失清单（与页面 valid 同源：valid = 清单为空）。 */
-export type MissingRequiredKey = "name" | "datasource" | "targetTable" | "mapping";
+export type MissingRequiredKey = "name" | "datasource" | "targetTable" | "mapping" | "businessKeys";
 
 export function missingRequiredFields(form: {
   name: string;
   datasource_id: number | null;
   target_table: string;
   mapping: { columns: { db_column: string }[] };
+  strategy?: string;
+  business_keys?: string[];
 }): MissingRequiredKey[] {
   const missing: MissingRequiredKey[] = [];
   if (form.name.trim() === "") missing.push("name");
@@ -114,6 +116,13 @@ export function missingRequiredFields(form: {
   if (form.target_table === "") missing.push("targetTable");
   if (!form.mapping.columns.some((column) => column.db_column.trim() !== "")) {
     missing.push("mapping");
+  }
+  // UPSERT 没选业务键时保存注定失败：后端要求业务键与目标表的唯一约束一致
+  // （templates.py: UNIQUE_KEY_REQUIRED），而自动建表模式下保存会先建表、
+  // 再保存——先建出的表没有唯一约束，模板没存成，还留下一张孤表。
+  // 拦在必填检查里，保存按钮直接禁用，建表那步根本不会走到。
+  if (form.strategy === "UPSERT" && (form.business_keys ?? []).length === 0) {
+    missing.push("businessKeys");
   }
   return missing;
 }

@@ -140,9 +140,35 @@ describe("missingRequiredFields", () => {
       "mapping",
     ]);
   });
+  it("UPSERT 没选业务键 → 报 businessKeys；选了就不报", () => {
+    expect(missingRequiredFields({ ...base, strategy: "UPSERT", business_keys: [] })).toEqual([
+      "businessKeys",
+    ]);
+    expect(
+      missingRequiredFields({ ...base, strategy: "UPSERT", business_keys: ["uscc"] }),
+    ).toEqual([]);
+  });
+  it("APPEND / REPLACE_SCOPE 不用业务键", () => {
+    expect(missingRequiredFields({ ...base, strategy: "APPEND", business_keys: [] })).toEqual([]);
+    expect(missingRequiredFields({ ...base, strategy: "REPLACE_SCOPE", business_keys: [] })).toEqual(
+      [],
+    );
+  });
   it("多项缺失按固定顺序返回", () => {
     expect(
       missingRequiredFields({ name: "", datasource_id: null, target_table: "", mapping: { columns: [] } }),
     ).toEqual(["name", "datasource", "targetTable", "mapping"]);
+  });
+  it("UPSERT 缺业务键时排在清单末尾", () => {
+    expect(
+      missingRequiredFields({
+        name: "",
+        datasource_id: null,
+        target_table: "",
+        mapping: { columns: [] },
+        strategy: "UPSERT",
+        business_keys: [],
+      }),
+    ).toEqual(["name", "datasource", "targetTable", "mapping", "businessKeys"]);
   });
 });

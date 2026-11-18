@@ -96,7 +96,7 @@ export default {
     rowApplied: "Row {n} set as data start row", saveDisabled: "Complete the required fields and make a change first",
     saveDisabledMissing: "Still missing: {list}", saveNoChanges: "No changes to save",
     requireInput: "Ask at import", constantDefault: "Default (optional)",
-    missingTitle: "To complete", missing: { name: "Name", datasource: "Datasource", targetTable: "Target table", mapping: "Mapped column" },
+    missingTitle: "To complete", missing: { name: "Name", datasource: "Datasource", targetTable: "Target table", mapping: "Mapped column", businessKeys: "Business keys" },
     tableExists: "Target table {table} already exists", useExistingTable: "Use the existing table",
     saveProgressTitle: "Saving template", saveStepCreateTable: "Create table",
     saveStepSaveTemplate: "Save template", saveStepTableCreated: "Created {table} ({n} columns)",

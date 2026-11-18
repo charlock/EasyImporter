@@ -54,6 +54,16 @@ export default {
     selectedCount: "已选 {n} 项", viewExpiredMapping: "该版本的模板映射已不可用",
     operator: "操作人", createdAt: "创建时间",
     dataViewReadOnly: "只读查看：单元格不可修改，也没有提交操作",
+    newImport: "新增导入",
+  },
+  list: {
+    selectedOf: "已选 {selected} / 共 {total} 行",
+    rowsPerPage: "每页行数",
+    pageOf: "第 {page} / {pages} 页",
+  },
+  detail: {
+    preview: "预览", expand: "放大", exitExpand: "退出放大",
+    settings: "设定", overview: "概览",
   },
   status: {
     QUEUED: "排队中", RUNNING: "执行中", COMMITTING: "提交中", SUCCEEDED: "成功",
@@ -102,6 +112,7 @@ export default {
     // Phase 2 - templates
     listDescription: "管理导入模板：数据源、目标表、写入策略与业务键。",
     datasourceColumn: "数据源",
+    notArchived: "未归档",
     clone: "克隆",
     cloned: "已克隆为“{name}”",
     deleted: "模板已删除（已归档）",

@@ -1,15 +1,19 @@
+<!-- 导入详情设定页：invoice 布局——左侧设定分组（概览 / 文件 / 模板 / 映射 /
+  错误与统计 / 执行日志），右侧预览（原文件只读 viewer，可放大）。
+  映射取任务提交时的模板版本（GET /templates/{id}?version=…，历史版本保留在库里）；
+  错误列表点错误跳到对应单元格（错误行号是 1 基 Excel 行号，列是目标字段名，
+  经版本映射 → 叶子列定位，见 @/lib/importRecords）。 -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
-import { PanelRight } from "@lucide/vue";
 
 import { api, ApiError, download, fetchBlob } from "@/api/client";
-import PageHeader from "@/components/PageHeader.vue";
-import StatusBadge from "@/components/StatusBadge.vue";
-import DrawerSection from "@/components/layout/DrawerSection.vue";
-import PageDrawer from "@/components/layout/PageDrawer.vue";
+import DetailShell from "@/components/layout/DetailShell.vue";
+import SettingsGroup from "@/components/layout/SettingsGroup.vue";
+import ViewerPreview from "@/components/layout/ViewerPreview.vue";
 import MappingTable, { type MappingTableRow } from "@/components/template/MappingTable.vue";
+import StatusBadge from "@/components/StatusBadge.vue";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -22,9 +26,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import {
   Table,
   TableBody,
@@ -33,14 +35,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import ExcelViewerHost from "@/features/excel-viewer/ExcelViewerHost.vue";
+import { createQuickImportPlugin } from "@/features/excel-viewer/quickImportPlugin";
+import { useExcelViewer, type SelectionRange } from "@/features/excel-viewer/useExcelViewer";
 import {
   modelSheetIndex,
   modelToParsedSheet,
   type AdaptedSheet,
 } from "@/features/excel-viewer/modelAdapter";
-import { createQuickImportPlugin } from "@/features/excel-viewer/quickImportPlugin";
-import { useExcelViewer, type SelectionRange } from "@/features/excel-viewer/useExcelViewer";
 import { pathLabel } from "@/features/header/tree";
 import { codeText, errorMessage, logText } from "@/lib/errors";
 import { buildErrorCells, errorCellPosition } from "@/lib/importRecords";
@@ -66,18 +67,12 @@ const busy = ref(false);
 const pendingOutcome = ref<"CONFIRMED_WRITTEN" | "CONFIRMED_NOT_WRITTEN" | null>(null);
 let timer: ReturnType<typeof setTimeout> | undefined;
 
-/* ---------- 只读数据视图（Phase 2） ----------
- * viewer 只读挂载原文件（editable=false，不监听 cell-change，没有提交按钮）；
- * 映射取任务提交时的模板版本（GET /templates/{id}?version=…，历史版本保留在库里）；
- * 抽屉里点错误跳到对应单元格（错误行号是 1 基 Excel 行号，列是目标字段名，
- * 经版本映射 → 叶子列定位，见 @/lib/importRecords）。 */
 const viewer = useExcelViewer();
 const errorCells = ref<ReadonlySet<string>>(new Set());
 const versionTemplate = ref<Template | null>(null);
 const mappingLoadError = ref(false);
 const adaptedSheet = ref<AdaptedSheet | null>(null);
 const allErrors = ref<ImportError[]>([]);
-const drawerOpen = ref(false);
 const dataViewState = ref<"idle" | "loading" | "ready" | "expired" | "error">("idle");
 const dataViewError = ref("");
 const dataViewTaskId = ref<number | null>(null);
@@ -145,7 +140,7 @@ function onViewerError(message: string): void {
   dataViewError.value = message;
 }
 
-/** 抽屉里点错误 → 跳到对应单元格（viewer 就绪且能定位时才跳）。 */
+/** 错误清单里点错误 → 跳到对应单元格（viewer 就绪且能定位时才跳）。 */
 function jumpToError(item: ImportError): void {
   const template = versionTemplate.value;
   const target = template ? errorCellPosition(item, template.mapping, adaptedSheet.value) : null;
@@ -311,122 +306,107 @@ const exportErrors = () =>
       <AlertDescription>{{ error }}</AlertDescription>
     </Alert>
 
-    <template v-if="task">
-      <PageHeader :title="`#${task.id}`">
-        <template #actions>
-          <StatusBadge :status="task.status" />
-          <Button v-if="canCancel" variant="outline" :disabled="busy" @click="cancel">
-            {{ t("import.cancel") }}
+    <DetailShell v-if="task" :title="`#${task.id}`" :description="`${task.target_table} · ${task.strategy ? t(`strategy.${task.strategy}`) : ''} · ${task.operator}`">
+      <template #actions>
+        <StatusBadge :status="task.status" />
+        <Button v-if="canCancel" variant="outline" :disabled="busy" @click="cancel">
+          {{ t("import.cancel") }}
+        </Button>
+        <Button v-if="canRetry" :disabled="busy" @click="retry">
+          {{ t("import.retry") }}
+        </Button>
+        <template v-if="canResolve">
+          <Button
+            variant="outline"
+            :disabled="busy"
+            @click="pendingOutcome = 'CONFIRMED_WRITTEN'"
+          >
+            {{ t("import.resolveWritten") }}
           </Button>
-          <Button v-if="canRetry" :disabled="busy" @click="retry">
-            {{ t("import.retry") }}
-          </Button>
-          <template v-if="canResolve">
-            <Button
-              variant="outline"
-              :disabled="busy"
-              @click="pendingOutcome = 'CONFIRMED_WRITTEN'"
-            >
-              {{ t("import.resolveWritten") }}
-            </Button>
-            <Button
-              variant="outline"
-              :disabled="busy"
-              @click="pendingOutcome = 'CONFIRMED_NOT_WRITTEN'"
-            >
-              {{ t("import.resolveNotWritten") }}
-            </Button>
-          </template>
-          <Button variant="outline" :disabled="busy" @click="downloadFile">
-            {{ t("import.downloadFile") }}
+          <Button
+            variant="outline"
+            :disabled="busy"
+            @click="pendingOutcome = 'CONFIRMED_NOT_WRITTEN'"
+          >
+            {{ t("import.resolveNotWritten") }}
           </Button>
         </template>
-      </PageHeader>
+        <Button variant="outline" :disabled="busy" @click="downloadFile">
+          {{ t("import.downloadFile") }}
+        </Button>
+      </template>
 
-      <Card>
-        <CardContent class="space-y-2 pt-6 text-sm">
-          <p>{{ task.target_table }} · {{ task.strategy ? t(`strategy.${task.strategy}`) : "" }} · {{ task.operator }}</p>
-          <p v-if="!terminal" class="text-muted-foreground">
-            {{ t("import.progress", { processed: task.processed, total: task.row_count }) }}
-          </p>
-          <p class="text-muted-foreground">
-            {{ t("import.counts", { inserted: task.inserted, updated: task.updated, deleted: task.deleted }) }}
-            <span v-if="!task.counts_exact">{{ t("import.countsApprox") }}</span>
-          </p>
-          <p v-if="task.failure_code" class="text-destructive">
-            {{ codeText(task.failure_code, task.failure_message) }}
-          </p>
-          <p v-if="task.failure_message && task.failure_message !== codeText(task.failure_code)" class="text-muted-foreground">
-            {{ task.failure_message }}
-          </p>
-        </CardContent>
-      </Card>
+      <template #groups>
+        <SettingsGroup :title="t('detail.overview')">
+          <div class="space-y-2 text-sm">
+            <p v-if="!terminal" class="text-muted-foreground">
+              {{ t("import.progress", { processed: task.processed, total: task.row_count }) }}
+            </p>
+            <p class="text-muted-foreground">
+              {{ t("import.counts", { inserted: task.inserted, updated: task.updated, deleted: task.deleted }) }}
+              <span v-if="!task.counts_exact">{{ t("import.countsApprox") }}</span>
+            </p>
+            <p v-if="task.failure_code" class="text-destructive">
+              {{ codeText(task.failure_code, task.failure_message) }}
+            </p>
+            <p v-if="task.failure_message && task.failure_message !== codeText(task.failure_code)" class="text-muted-foreground">
+              {{ task.failure_message }}
+            </p>
+          </div>
+        </SettingsGroup>
 
-      <!-- 只读数据视图：原文件只读 viewer + 顶部映射条（该版本模板的映射）。
-           viewer 以 :editable="false" 挂载，不监听 cell-change，没有提交按钮。 -->
-      <Card>
-        <CardHeader>
-          <CardTitle class="flex items-center justify-between">
-            <span>{{ t("import.dataView") }}</span>
-            <Button variant="outline" size="sm" @click="drawerOpen = true">
-              <PanelRight />{{ t("import.details") }}
-            </Button>
-          </CardTitle>
-        </CardHeader>
-        <CardContent class="space-y-3">
-          <div v-if="versionTemplate" class="flex gap-2 overflow-x-auto pb-1 text-xs">
-            <span
-              v-for="row in mappingRows"
-              :key="row.key"
-              class="shrink-0 rounded-md border bg-muted/50 px-2 py-1"
+        <SettingsGroup :title="t('import.file')">
+          <dl class="space-y-1.5 text-sm">
+            <div class="flex justify-between gap-4">
+              <dt class="shrink-0 text-muted-foreground">{{ t("common.name") }}</dt>
+              <dd class="truncate">{{ task.file_name || "—" }}</dd>
+            </div>
+            <div class="flex justify-between">
+              <dt class="text-muted-foreground">{{ t("import.rows") }}</dt>
+              <dd>{{ task.row_count }}</dd>
+            </div>
+            <div class="flex justify-between">
+              <dt class="text-muted-foreground">{{ t("template.target") }}</dt>
+              <dd class="truncate">{{ task.target_table }}</dd>
+            </div>
+          </dl>
+        </SettingsGroup>
+
+        <SettingsGroup :title="t('import.template')">
+          <dl class="space-y-1.5 text-sm">
+            <div class="flex justify-between gap-4">
+              <dt class="shrink-0 text-muted-foreground">{{ t("common.name") }}</dt>
+              <dd class="truncate">{{ versionTemplate?.name ?? "—" }}</dd>
+            </div>
+            <div class="flex justify-between">
+              <dt class="text-muted-foreground">{{ t("template.mapping") }}</dt>
+              <dd>v{{ task.template_version }}</dd>
+            </div>
+            <div class="flex justify-between">
+              <dt class="text-muted-foreground">{{ t("template.strategy") }}</dt>
+              <dd>{{ task.strategy ? t(`strategy.${task.strategy}`) : "—" }}</dd>
+            </div>
+          </dl>
+        </SettingsGroup>
+
+        <SettingsGroup v-if="versionTemplate" :title="t('template.mapping')">
+          <MappingTable :rows="mappingRows" read-only />
+        </SettingsGroup>
+
+        <SettingsGroup :title="t('import.errorStats')">
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-sm">{{ task.error_count }} {{ t("import.errors") }}</p>
+            <Button
+              v-if="task.error_count && errors.length"
+              variant="outline"
+              size="sm"
+              :disabled="busy"
+              @click="exportErrors"
             >
-              {{ row.excelLabel }} → {{ row.dbColumn }}
-            </span>
-          </div>
-          <p v-else-if="mappingLoadError" class="text-sm text-muted-foreground">
-            {{ t("import.viewExpiredMapping") }}
-          </p>
-          <p v-if="dataViewState === 'loading'" class="text-sm text-muted-foreground">
-            {{ t("common.loading") }}
-          </p>
-          <p v-if="dataViewState === 'expired'" class="text-sm text-muted-foreground">
-            {{ t("import.viewFileExpired") }}
-          </p>
-          <p v-if="dataViewState === 'error' && dataViewError" class="text-sm text-destructive">
-            {{ dataViewError }}
-          </p>
-          <div
-            v-if="viewer.workbook.value"
-            class="h-[calc(100vh-13rem)] min-h-[480px] overflow-hidden rounded-lg border"
-          >
-            <ExcelViewerHost
-              :workbook="viewer.workbook.value"
-              :editable="false"
-              :plugins="viewerPlugins"
-              height="100%"
-              @selection-change="onViewerSelection"
-              @sheet-change="onViewerSheetChange"
-              @viewer-ready="onViewerReady"
-              @error="onViewerError"
-            />
-          </div>
-          <p v-if="viewer.workbook.value" class="text-xs text-muted-foreground">
-            {{ t("import.dataViewReadOnly") }}
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card v-if="task.error_count && errors.length">
-        <CardHeader>
-          <CardTitle class="flex items-center justify-between">
-            <span>{{ task.error_count }} {{ t("import.errors") }}</span>
-            <Button variant="outline" size="sm" :disabled="busy" @click="exportErrors">
               {{ t("import.exportErrors") }}
             </Button>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
+          </div>
+          <Table v-if="task.error_count && errors.length" class="mt-3">
             <TableHeader>
               <TableRow>
                 <TableHead>{{ t("grid.rowNo") }}</TableHead>
@@ -456,77 +436,7 @@ const exportErrors = () =>
               {{ t("common.next") }}
             </Button>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle>{{ t("import.logs") }}</CardTitle></CardHeader>
-        <CardContent>
-          <ScrollArea class="h-64">
-            <p
-              v-for="log in logs"
-              :key="log.id"
-              :class="log.level === 'INFO' ? 'text-sm text-muted-foreground' : 'text-sm text-destructive'"
-            >
-              {{ new Date(log.ts).toLocaleString() }} · {{ logText(log) }}
-            </p>
-          </ScrollArea>
-        </CardContent>
-      </Card>
-    </template>
-
-    <!-- 右侧抽屉（非模态，可开着抽屉看 viewer）：文件 / 模板 / 映射 / 错误与统计。
-         点错误跳到对应单元格；无错误时显示无错误。 -->
-    <PageDrawer v-if="task" v-model:open="drawerOpen">
-      <template #title>{{ t("import.details") }}</template>
-      <div class="space-y-5">
-        <DrawerSection :title="t('import.file')">
-          <dl class="space-y-1.5 text-sm">
-            <div class="flex justify-between gap-4">
-              <dt class="shrink-0 text-muted-foreground">{{ t("common.name") }}</dt>
-              <dd class="truncate">{{ task.file_name || "—" }}</dd>
-            </div>
-            <div class="flex justify-between">
-              <dt class="text-muted-foreground">{{ t("import.rows") }}</dt>
-              <dd>{{ task.row_count }}</dd>
-            </div>
-            <div class="flex justify-between">
-              <dt class="text-muted-foreground">{{ t("template.target") }}</dt>
-              <dd class="truncate">{{ task.target_table }}</dd>
-            </div>
-          </dl>
-        </DrawerSection>
-
-        <Separator />
-
-        <DrawerSection :title="t('import.template')">
-          <dl class="space-y-1.5 text-sm">
-            <div class="flex justify-between gap-4">
-              <dt class="shrink-0 text-muted-foreground">{{ t("common.name") }}</dt>
-              <dd class="truncate">{{ versionTemplate?.name ?? "—" }}</dd>
-            </div>
-            <div class="flex justify-between">
-              <dt class="text-muted-foreground">{{ t("template.mapping") }}</dt>
-              <dd>v{{ task.template_version }}</dd>
-            </div>
-            <div class="flex justify-between">
-              <dt class="text-muted-foreground">{{ t("template.strategy") }}</dt>
-              <dd>{{ task.strategy ? t(`strategy.${task.strategy}`) : "—" }}</dd>
-            </div>
-          </dl>
-        </DrawerSection>
-
-        <Separator v-if="versionTemplate" />
-
-        <DrawerSection v-if="versionTemplate" :title="t('template.mapping')">
-          <MappingTable :rows="mappingRows" read-only />
-        </DrawerSection>
-
-        <Separator v-if="versionTemplate" />
-
-        <DrawerSection :title="t('import.errorStats')">
-          <p class="mb-3 text-sm">{{ task.error_count }} {{ t("import.errors") }}</p>
-          <ul v-if="allErrors.length" class="space-y-1 text-sm">
+          <ul v-if="allErrors.length" class="mt-3 space-y-1 text-sm">
             <li v-for="item in allErrors" :key="item.id">
               <button
                 class="text-left text-destructive hover:underline"
@@ -537,10 +447,68 @@ const exportErrors = () =>
               </button>
             </li>
           </ul>
-          <p v-else class="text-sm text-muted-foreground">{{ t("import.noErrorsHere") }}</p>
-        </DrawerSection>
-      </div>
-    </PageDrawer>
+          <p v-else-if="!task.error_count" class="mt-3 text-sm text-muted-foreground">
+            {{ t("import.noErrorsHere") }}
+          </p>
+        </SettingsGroup>
+
+        <SettingsGroup :title="t('import.logs')">
+          <ScrollArea class="h-64">
+            <p
+              v-for="log in logs"
+              :key="log.id"
+              :class="log.level === 'INFO' ? 'text-sm text-muted-foreground' : 'text-sm text-destructive'"
+            >
+              {{ new Date(log.ts).toLocaleString() }} · {{ logText(log) }}
+            </p>
+          </ScrollArea>
+        </SettingsGroup>
+      </template>
+
+      <template #preview>
+        <!-- 只读数据视图：原文件只读 viewer + 顶部映射条（该版本模板的映射）。
+             viewer 以 :editable="false" 挂载，没有提交按钮；右上角可放大显示。 -->
+        <ViewerPreview
+          :workbook="viewer.workbook.value"
+          :editable="false"
+          :plugins="viewerPlugins"
+          :error-cells="errorCells"
+          :title="t('import.dataView')"
+          @selection-change="onViewerSelection"
+          @sheet-change="onViewerSheetChange"
+          @viewer-ready="onViewerReady"
+          @error="onViewerError"
+        >
+          <template #above>
+            <div v-if="versionTemplate" class="flex gap-2 overflow-x-auto pb-1 text-xs">
+              <span
+                v-for="row in mappingRows"
+                :key="row.key"
+                class="shrink-0 rounded-md border bg-muted/50 px-2 py-1"
+              >
+                {{ row.excelLabel }} → {{ row.dbColumn }}
+              </span>
+            </div>
+            <p v-else-if="mappingLoadError" class="text-sm text-muted-foreground">
+              {{ t("import.viewExpiredMapping") }}
+            </p>
+          </template>
+          <template #empty>
+            <p v-if="dataViewState === 'loading'" class="text-sm text-muted-foreground">
+              {{ t("common.loading") }}
+            </p>
+            <p v-else-if="dataViewState === 'expired'" class="text-sm text-muted-foreground">
+              {{ t("import.viewFileExpired") }}
+            </p>
+            <p v-else-if="dataViewState === 'error' && dataViewError" class="text-sm text-destructive">
+              {{ dataViewError }}
+            </p>
+            <p v-else class="text-sm text-muted-foreground">{{ t("common.loading") }}</p>
+          </template>
+          <template #hint>{{ t("import.dataViewReadOnly") }}</template>
+        </ViewerPreview>
+      </template>
+    </DetailShell>
 
     <AlertDialog :open="pendingOutcome !== null" @update:open="(open) => { if (!open) pendingOutcome = null; }">
       <AlertDialogContent>

@@ -1,17 +1,20 @@
 <!-- 导入记录主页：tasks 风格数据表（复选框 / 任务 / 状态 / 行数·错误数 / 时间 / 行操作）。
+  表格骨架（头部 / 过滤 / 分页 / 已选行数）由 ListShell 提供，本页只定义列与数据源；
   复选框用于行选择（后续批量操作预留）；行操作：查看详情、删除（仅管理员，删除前
   AlertDialog 二次确认，删后刷新列表）。 -->
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
-import { Eye, MoreHorizontal, Trash2 } from "@lucide/vue";
+import { Eye, Plus, Trash2 } from "@lucide/vue";
 
 import { api } from "@/api/client";
-import EmptyState from "@/components/EmptyState.vue";
-import PageHeader from "@/components/PageHeader.vue";
-import StatusBadge from "@/components/StatusBadge.vue";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import ListShell from "@/components/list/ListShell.vue";
+import {
+  importStatusTone,
+  type ListAction,
+  type ListColumn,
+} from "@/components/list/listTypes";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,13 +26,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -37,14 +33,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { errorMessage } from "@/lib/errors";
 import { canDeleteImport } from "@/lib/importRecords";
 import type { ImportStatus, ImportTask, Page, Template } from "@/lib/types";
@@ -55,13 +43,13 @@ const { t } = useI18n();
 const router = useRouter();
 const session = useSession();
 
-const PAGE_SIZE = 20;
 const STATUSES: ImportStatus[] = ["QUEUED", "RUNNING", "COMMITTING", "SUCCEEDED", "FAILED", "CANCELLED", "UNKNOWN"];
 
 const tasks = ref<ImportTask[]>([]);
 const templates = ref<Template[]>([]);
 const total = ref(0);
 const page = ref(1);
+const pageSize = ref(20);
 const status = ref("all");
 const templateId = ref("all");
 const error = ref("");
@@ -70,8 +58,73 @@ const deleteTarget = ref<ImportTask | null>(null);
 const deleteOpen = ref(false);
 const deleting = ref(false);
 
-const allSelected = computed(() => tasks.value.length > 0 && tasks.value.every((task) => selected.value.has(task.id)));
-const someSelected = computed(() => tasks.value.some((task) => selected.value.has(task.id)));
+/** 列定义：kind 与单元格表达一一对应（同列一种渲染、一种交互）。 */
+const columns = computed<ListColumn<ImportTask>[]>(() => {
+  const base: ListColumn<ImportTask>[] = [
+    {
+      key: "details",
+      header: t("import.details"),
+      kind: "link",
+      cell: (task) => ({
+        type: "link",
+        to: `/imports/${task.id}`,
+        label: `#${task.id}`,
+        sub: [task.file_name || "—", task.target_table],
+      }),
+    },
+    {
+      key: "status",
+      header: t("common.status"),
+      kind: "badge",
+      cell: (task) => ({
+        type: "badge",
+        label: t(`status.${task.status}`),
+        tone: importStatusTone(task.status),
+      }),
+    },
+    {
+      key: "counts",
+      header: `${t("import.rows")} / ${t("import.errors")}`,
+      kind: "count",
+      cell: (task) => ({
+        type: "count",
+        primary: `${task.row_count} ${t("import.rows")}`,
+        secondary: `${task.error_count} ${t("import.errors")}`,
+        danger: task.error_count > 0,
+      }),
+    },
+    {
+      key: "operator",
+      header: `${t("import.operator")} · ${t("import.createdAt")}`,
+      kind: "meta",
+      cell: (task) => ({
+        type: "meta",
+        primary: task.operator,
+        secondary: task.created_at ? new Date(task.created_at).toLocaleString() : "",
+      }),
+    },
+  ];
+  if (session.isAdmin) base.push({ key: "actions", header: t("common.actions"), kind: "actions" });
+  return base;
+});
+
+function rowActions(task: ImportTask): ListAction[] {
+  return [
+    {
+      label: t("import.viewDetails"),
+      icon: Eye,
+      onClick: () => router.push(`/imports/${task.id}`),
+    },
+    {
+      label: t("import.deleteTask"),
+      icon: Trash2,
+      danger: true,
+      disabled: !canDeleteImport(task.status),
+      title: canDeleteImport(task.status) ? undefined : t("import.notDeletable"),
+      onClick: () => openDelete(task),
+    },
+  ];
+}
 
 async function load(): Promise<void> {
   if (props.workspaceId == null) return;
@@ -79,7 +132,7 @@ async function load(): Promise<void> {
   try {
     const result = await api.get<Page<ImportTask>>(`/workspaces/${props.workspaceId}/imports`, {
       page: page.value,
-      size: PAGE_SIZE,
+      size: pageSize.value,
       // "all" 是哨兵值：不筛，传空串由 client 丢弃，与原来传 "" 等价。
       status: status.value === "all" ? "" : status.value,
       template_id: templateId.value === "all" ? "" : templateId.value,
@@ -100,25 +153,12 @@ watch(
   },
   { immediate: true },
 );
-// 改筛选条件回到第一页；page 本身变化也触发加载。
+// 改筛选条件回到第一页；page / pageSize 本身变化也触发加载。
 watch([status, templateId], () => {
   if (page.value !== 1) page.value = 1;
   else void load();
 });
-watch(() => [props.workspaceId, page.value], load, { immediate: true });
-
-function toggleAll(checked: boolean | "indeterminate"): void {
-  selected.value = checked === true
-    ? new Set(tasks.value.map((task) => task.id))
-    : new Set();
-}
-
-function toggleOne(id: number, checked: boolean | "indeterminate"): void {
-  const next = new Set(selected.value);
-  if (checked === true) next.add(id);
-  else next.delete(id);
-  selected.value = next;
-}
+watch(() => [props.workspaceId, page.value, pageSize.value], load, { immediate: true });
 
 function openDelete(task: ImportTask): void {
   deleteTarget.value = task;
@@ -145,153 +185,68 @@ async function removeTask(): Promise<void> {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <PageHeader :title="t('import.history')">
-      <template #actions>
-        <Select v-model="status">
-          <SelectTrigger class="w-40" :aria-label="t('common.status')">
-            <SelectValue :placeholder="`${t('common.status')}: ${t('common.all')}`" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{{ t("common.all") }}</SelectItem>
-            <SelectItem v-for="item in STATUSES" :key="item" :value="item">
-              {{ t(`status.${item}`) }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-        <Select v-model="templateId">
-          <SelectTrigger class="w-48" :aria-label="t('import.template')">
-            <SelectValue :placeholder="`${t('import.template')}: ${t('common.all')}`" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{{ t("common.all") }}</SelectItem>
-            <SelectItem v-for="item in templates" :key="item.id" :value="String(item.id)">
-              {{ item.name }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-      </template>
-    </PageHeader>
-
-    <Alert v-if="error" variant="destructive">
-      <AlertDescription>{{ error }}</AlertDescription>
-    </Alert>
-
-    <p v-if="selected.size" class="text-sm text-muted-foreground">
-      {{ t("import.selectedCount", { n: selected.size }) }}
-    </p>
-
-    <EmptyState v-if="!tasks.length" :title="t('common.empty')" />
-    <template v-else>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead class="w-10">
-              <Checkbox
-                :checked="allSelected ? true : someSelected ? 'indeterminate' : false"
-                :aria-label="t('import.selectedCount', { n: selected.size })"
-                @update:checked="toggleAll"
-              />
-            </TableHead>
-            <TableHead>{{ t("import.details") }}</TableHead>
-            <TableHead>{{ t("common.status") }}</TableHead>
-            <TableHead>{{ t("import.rows") }} / {{ t("import.errors") }}</TableHead>
-            <TableHead>{{ t("import.operator") }} · {{ t("import.createdAt") }}</TableHead>
-            <TableHead v-if="session.isAdmin" class="w-[70px] text-right">{{ t("common.actions") }}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <TableRow v-for="task in tasks" :key="task.id" :data-state="selected.has(task.id) ? 'selected' : undefined">
-            <TableCell>
-              <Checkbox
-                :checked="selected.has(task.id)"
-                :aria-label="`#${task.id}`"
-                @update:checked="(checked: boolean | 'indeterminate') => toggleOne(task.id, checked)"
-              />
-            </TableCell>
-            <TableCell>
-              <RouterLink :to="`/imports/${task.id}`" class="font-medium hover:underline">
-                #{{ task.id }}
-              </RouterLink>
-              <p class="truncate text-sm text-muted-foreground" :title="task.file_name || undefined">
-                {{ task.file_name || "—" }}
-              </p>
-              <p class="text-xs text-muted-foreground">{{ task.target_table }}</p>
-            </TableCell>
-            <TableCell><StatusBadge :status="task.status" /></TableCell>
-            <TableCell>
-              {{ task.row_count }} {{ t("import.rows") }}
-              <span :class="task.error_count ? 'text-destructive' : 'text-muted-foreground'">
-                · {{ task.error_count }} {{ t("import.errors") }}
-              </span>
-            </TableCell>
-            <TableCell class="text-muted-foreground">
-              {{ task.operator }}
-              <span class="block text-xs">
-                {{ task.created_at ? new Date(task.created_at).toLocaleString() : "" }}
-              </span>
-            </TableCell>
-            <TableCell v-if="session.isAdmin" class="text-right">
-              <DropdownMenu>
-                <DropdownMenuTrigger as-child>
-                  <Button variant="ghost" size="icon" class="h-8 w-8">
-                    <MoreHorizontal class="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem @click="router.push(`/imports/${task.id}`)">
-                    <Eye class="mr-2 h-4 w-4" />{{ t("import.viewDetails") }}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    class="text-destructive"
-                    :disabled="!canDeleteImport(task.status)"
-                    :title="canDeleteImport(task.status) ? undefined : t('import.notDeletable')"
-                    @click="openDelete(task)"
-                  >
-                    <Trash2 class="mr-2 h-4 w-4" />{{ t("import.deleteTask") }}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
-      <div v-if="total > PAGE_SIZE" class="flex items-center gap-2">
-        <Button variant="outline" size="sm" :disabled="page === 1" @click="page -= 1">
-          {{ t("common.prev") }}
-        </Button>
-        <span class="text-sm text-muted-foreground">{{ page }}</span>
-        <Button
-          variant="outline"
-          size="sm"
-          :disabled="page * PAGE_SIZE >= total"
-          @click="page += 1"
-        >
-          {{ t("common.next") }}
-        </Button>
-      </div>
+  <ListShell
+    v-model:page="page"
+    v-model:page-size="pageSize"
+    v-model:selected="selected"
+    :title="t('import.history')"
+    :columns="columns"
+    :rows="tasks"
+    :row-key="(task) => task.id"
+    :total="total"
+    :actions="session.isAdmin ? rowActions : undefined"
+    :error="error"
+  >
+    <template #actions>
+      <Button as-child>
+        <RouterLink to="/import"><Plus />{{ t("import.newImport") }}</RouterLink>
+      </Button>
     </template>
+    <template #filters>
+      <Select v-model="status">
+        <SelectTrigger class="w-40" :aria-label="t('common.status')">
+          <SelectValue :placeholder="`${t('common.status')}: ${t('common.all')}`" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">{{ t("common.all") }}</SelectItem>
+          <SelectItem v-for="item in STATUSES" :key="item" :value="item">
+            {{ t(`status.${item}`) }}
+          </SelectItem>
+        </SelectContent>
+      </Select>
+      <Select v-model="templateId">
+        <SelectTrigger class="w-48" :aria-label="t('import.template')">
+          <SelectValue :placeholder="`${t('import.template')}: ${t('common.all')}`" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">{{ t("common.all") }}</SelectItem>
+          <SelectItem v-for="item in templates" :key="item.id" :value="String(item.id)">
+            {{ item.name }}
+          </SelectItem>
+        </SelectContent>
+      </Select>
+    </template>
+  </ListShell>
 
-    <!-- 删除二次确认（后端为硬删除：任务 + 日志 + 错误 + 磁盘文件） -->
-    <AlertDialog v-model:open="deleteOpen">
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{{ t("import.deleteTaskTitle") }}</AlertDialogTitle>
-          <AlertDialogDescription>
-            {{
-              deleteTarget
-                ? t("import.deleteTaskConfirm", { id: deleteTarget.id, file: deleteTarget.file_name || "—" })
-                : ""
-            }}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>{{ t("common.cancel") }}</AlertDialogCancel>
-          <AlertDialogAction :disabled="deleting" @click="removeTask">
-            {{ t("common.delete") }}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  </div>
+  <!-- 删除二次确认（后端为硬删除：任务 + 日志 + 错误 + 磁盘文件） -->
+  <AlertDialog v-model:open="deleteOpen">
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>{{ t("import.deleteTaskTitle") }}</AlertDialogTitle>
+        <AlertDialogDescription>
+          {{
+            deleteTarget
+              ? t("import.deleteTaskConfirm", { id: deleteTarget.id, file: deleteTarget.file_name || "—" })
+              : ""
+          }}
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>{{ t("common.cancel") }}</AlertDialogCancel>
+        <AlertDialogAction :disabled="deleting" @click="removeTask">
+          {{ t("common.delete") }}
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
 </template>

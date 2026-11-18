@@ -1,5 +1,5 @@
 <template>
-  <!-- 停靠栏：模板下拉 + 新建 + 样例 chip + 状态徽章 + 快速导入 + 上传 + 编辑/配置/取消/保存 -->
+  <!-- 停靠栏：模板下拉 + 新建 + 样例 chip + 状态徽章 + 快速导入 + 上传 + 编辑/取消/保存 -->
   <DockBar>
     <Select :model-value="templateSelectValue" @update:model-value="onTemplateSelect">
       <SelectTrigger class="w-56 h-8">
@@ -78,9 +78,6 @@
     >
       <Pencil class="mr-1 h-4 w-4" />{{ t("common.edit") }}
     </Button>
-    <Button variant="outline" size="sm" :disabled="!buttonStates.configure" @click="drawerOpen = true">
-      <SlidersHorizontal class="mr-1 h-4 w-4" />{{ t("template.configure") }}
-    </Button>
     <Button variant="outline" size="sm" :disabled="!buttonStates.cancel" @click="cancelEdit">
       {{ t("common.cancel") }}
     </Button>
@@ -93,393 +90,329 @@
     <AlertDescription>{{ error }}</AlertDescription>
   </Alert>
 
-  <!-- 主区域：有样例挂 ExcelViewerHost；无样例保留 drop zone；有映射无样例保留回退映射表 -->
-  <div
-    v-if="viewer.workbook.value"
-    class="mt-4 h-[calc(100vh-13rem)] min-h-[480px] overflow-hidden rounded-lg border"
-  >
-    <ExcelViewerHost
-      :workbook="viewer.workbook.value"
-      :editable="viewerEditable(pageModel)"
-      :plugins="plugins"
-      height="100%"
-      @selection-change="onSelection"
-      @sheet-change="onSheetChange"
-      @viewer-ready="onViewerReady"
-      @error="onViewerError"
-    />
-  </div>
-  <div v-else class="mt-4 space-y-4">
-    <!-- 新建/编辑入口：先选/上传样例，再做基础配置；样例上传后自动进入正常编辑器视图 -->
-    <div v-if="showEntry" class="space-y-6 rounded-lg border p-6">
-      <div>
-        <h2 class="text-lg font-semibold">
-          {{ pageModel.state === "S2" ? t("template.entryTitleNew") : t("template.entryTitleEdit") }}
-        </h2>
-        <p v-if="pageModel.state === 'S3'" class="mt-1 text-sm text-muted-foreground">
-          {{ t("template.entryKeepData") }}
-        </p>
-      </div>
+  <!-- invoice 布局：左侧设定分组常驻，右侧预览（样例 viewer，可放大）；无样例时右侧放入口面板 / drop zone。 -->
+  <div class="mt-4">
+    <DetailShell :show-header="false" preview-sticky-top="calc(3.5rem + 53px + 1.5rem)">
+      <template #groups>
+        <div ref="settingsRef" class="space-y-5">
+                <div
+                  v-if="showMissingBadges"
+                  class="flex flex-wrap items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm"
+                >
+                  <span class="font-medium text-destructive">{{ t("template.missingTitle") }}</span>
+                  <Badge v-for="key in missingRequired" :key="key" variant="destructive">
+                    {{ t(`template.missing.${key}`) }}
+                  </Badge>
+                </div>
+                <div
+                  v-if="pendingRowFill != null && activeTab !== 'start-row' && pageModel.state !== 'S1'"
+                  class="flex items-center justify-between rounded-md bg-accent px-3 py-2.5 text-sm"
+                >
+                  <span>{{ t("template.selectionRow", { n: pendingRowFill }) }}</span>
+                  <Button size="sm" variant="outline" @click="applyAndGoToStartRow">
+                    {{ t("template.bringFromSelection") }}
+                  </Button>
+                </div>
+                <div class="space-y-5" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
+                  <SettingsGroup :title="t('template.basicInfo')">
+                    <div class="grid grid-cols-2 gap-3">
+                      <div class="space-y-1.5">
+                        <Label>{{ t("common.name") }}</Label>
+                        <Input v-model="form.name" />
+                      </div>
+                      <div class="space-y-1.5">
+                        <Label>{{ t("common.description") }}</Label>
+                        <Input v-model="form.description" />
+                      </div>
+                      <div class="space-y-1.5">
+                        <Label>{{ t("datasource.title") }}</Label>
+                        <Select v-model="datasourceIdStr">
+                          <SelectTrigger class="w-full"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem v-for="source in datasources" :key="source.id" :value="String(source.id)">
+                              {{ source.name }}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div class="space-y-1.5">
+                        <Label>{{ t("template.target") }}</Label>
+                        <Select :model-value="targetSelectValue" @update:model-value="onTargetSelect">
+                          <SelectTrigger class="w-full"><SelectValue placeholder="—" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem v-for="(table, index) in tables" :key="table.name" :value="String(index)">
+                              {{ table.schema ? `${table.schema}.${table.name}` : table.name }}
+                            </SelectItem>
+                            <SelectSeparator />
+                            <SelectItem :value="AUTO_TABLE_VALUE">{{ t("template.autoTable") }}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div v-if="autoTableMode" class="mt-3 space-y-3 rounded-md border bg-muted/40 p-4">
+                      <div class="space-y-1.5">
+                        <Label>{{ t("template.autoTableName") }}</Label>
+                        <Input v-model="autoTableName" />
+                      </div>
+                      <p v-if="previewHint" class="text-xs text-muted-foreground">{{ previewHint }}</p>
+                      <Button variant="outline" size="sm" :disabled="!canPreviewDdl || inferring" @click="previewDdl">
+                        {{ t("template.previewDdl") }}
+                      </Button>
+                    </div>
+                    <div class="mt-3 grid grid-cols-2 gap-3">
+                      <div class="space-y-1.5">
+                        <Label>{{ t("template.sheet") }}</Label>
+                        <Input v-model="form.sheet" />
+                      </div>
+                    </div>
+                  </SettingsGroup>
 
-      <section class="space-y-2">
-        <h3 class="text-sm font-medium">
-          {{ pageModel.state === "S3" ? t("template.entryStep1Replace") : t("template.entryStep1") }}
-        </h3>
-        <p class="text-sm text-muted-foreground">{{ t("template.entryStep1Hint") }}</p>
-        <label
-          class="inline-flex h-9 cursor-pointer items-center rounded-md border px-3 text-sm hover:bg-accent"
-        >
-          <Upload class="mr-1 h-4 w-4" />{{ t("template.uploadSample") }}
-          <input type="file" accept=".xlsx" class="hidden" @change="onSample" />
-        </label>
-      </section>
+                  <SettingsGroup :title="t('template.strategy')">
+                    <Select v-model="form.strategy">
+                      <SelectTrigger class="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="APPEND">{{ t("strategy.APPEND") }}</SelectItem>
+                        <SelectItem value="UPSERT">{{ t("strategy.UPSERT") }}</SelectItem>
+                        <SelectItem value="REPLACE_SCOPE">{{ t("strategy.REPLACE_SCOPE") }}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <div class="mt-3 space-y-1.5">
+                      <Label>{{ t("template.businessKeys") }}</Label>
+                      <div class="flex flex-wrap gap-2">
+                        <label v-for="column in dbColumns" :key="column" class="flex items-center gap-1 text-sm">
+                          <Checkbox
+                            :model-value="form.business_keys.includes(column)"
+                            @update:model-value="(checked) => toggleIn('business_keys', column, checked === true)"
+                          />
+                          {{ column }}
+                        </label>
+                      </div>
+                    </div>
+                    <div v-if="form.strategy === 'REPLACE_SCOPE'" class="mt-3 space-y-1.5">
+                      <Label>{{ t("template.scopeColumns") }}</Label>
+                      <div class="flex flex-wrap gap-2">
+                        <label v-for="column in dbColumns" :key="column" class="flex items-center gap-1 text-sm">
+                          <Checkbox
+                            :model-value="form.scope_columns.includes(column)"
+                            @update:model-value="(checked) => toggleIn('scope_columns', column, checked === true)"
+                          />
+                          {{ column }}
+                        </label>
+                      </div>
+                    </div>
+                    <p v-if="form.strategy === 'UPSERT' && !form.business_keys.length" class="mt-2 text-xs text-muted-foreground">
+                      {{ t("template.upsertNeedsKeys") }}
+                    </p>
+                  </SettingsGroup>
+                </div>
 
-      <Separator />
+                <Tabs v-model="activeTab" class="w-full">
+                  <TabsList class="grid w-full grid-cols-4">
+                    <TabsTrigger value="start-row">{{ t("template.quickStartRow") }}</TabsTrigger>
+                    <TabsTrigger value="mapping">{{ t("template.quickMapping") }}</TabsTrigger>
+                    <TabsTrigger value="rules">{{ t("template.rules") }}</TabsTrigger>
+                    <TabsTrigger value="synonyms">{{ t("template.synonyms") }}</TabsTrigger>
+                  </TabsList>
 
-      <section class="space-y-3">
-        <h3 class="text-sm font-medium">{{ t("template.entryStep2") }}</h3>
-        <p class="text-sm text-muted-foreground">{{ t("template.entryStep2Hint") }}</p>
-        <div class="grid max-w-2xl grid-cols-2 gap-3">
-          <div class="space-y-1.5">
-            <Label>{{ t("common.name") }}</Label>
-            <Input v-model="form.name" />
-          </div>
-          <div class="space-y-1.5">
-            <Label>{{ t("common.description") }}</Label>
-            <Input v-model="form.description" />
-          </div>
-          <div class="space-y-1.5">
-            <Label>{{ t("datasource.title") }}</Label>
-            <Select v-model="datasourceIdStr">
-              <SelectTrigger class="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="source in datasources" :key="source.id" :value="String(source.id)">
-                  {{ source.name }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div class="space-y-1.5">
-            <Label>{{ t("template.target") }}</Label>
-            <Select :model-value="targetSelectValue" @update:model-value="onTargetSelect">
-              <SelectTrigger class="w-full"><SelectValue placeholder="—" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem v-for="(table, index) in tables" :key="table.name" :value="String(index)">
-                  {{ table.schema ? `${table.schema}.${table.name}` : table.name }}
-                </SelectItem>
-                <SelectSeparator />
-                <SelectItem :value="AUTO_TABLE_VALUE">{{ t("template.autoTable") }}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div class="space-y-1.5">
-            <Label>{{ t("template.strategy") }}</Label>
-            <Select v-model="form.strategy">
-              <SelectTrigger class="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="APPEND">{{ t("strategy.APPEND") }}</SelectItem>
-                <SelectItem value="UPSERT">{{ t("strategy.UPSERT") }}</SelectItem>
-                <SelectItem value="REPLACE_SCOPE">{{ t("strategy.REPLACE_SCOPE") }}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <div>
-          <Button variant="outline" size="sm" @click="drawerOpen = true">
-            <SlidersHorizontal class="mr-1 h-4 w-4" />{{ t("template.entryOpenConfig") }}
-          </Button>
-        </div>
-      </section>
+                  <TabsContent value="start-row" class="pt-4">
+                    <div class="space-y-4" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
+                      <div class="grid grid-cols-3 gap-3">
+                        <div class="space-y-1.5">
+                          <Label>{{ t("template.headerStart") }}</Label>
+                          <Input v-model.number="form.header_start_row" type="number" min="1" />
+                        </div>
+                        <div class="space-y-1.5">
+                          <Label>{{ t("template.headerRows") }}</Label>
+                          <Input v-model.number="form.header_row_count" type="number" min="1" max="10" />
+                        </div>
+                        <div class="space-y-1.5">
+                          <Label>{{ t("template.dataStartRow") }}</Label>
+                          <Input v-model.number="dataStartRow" type="number" min="1" />
+                        </div>
+                      </div>
+                      <div class="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          :disabled="pendingRowFill == null"
+                          @click="pendingRowFill != null && applyDataStartRow(pendingRowFill)"
+                        >
+                          {{ t("template.bringFromSelection") }}
+                        </Button>
+                        <Button variant="outline" size="sm" :disabled="!sample" @click="detectHeader">
+                          {{ t("template.detectHeader") }}
+                        </Button>
+                        <Button variant="ghost" size="sm" @click="restoreHeaderStart">{{ t("template.restore") }}</Button>
+                      </div>
+                      <p v-if="pendingRowFill != null" class="text-sm text-muted-foreground">
+                        {{ t("template.selectionRow", { n: pendingRowFill }) }}
+                      </p>
+                    </div>
+                  </TabsContent>
 
-      <div class="flex justify-end">
-        <Button @click="entryDismissed = true">{{ t("template.entryEnterEditor") }}</Button>
-      </div>
-    </div>
+                  <TabsContent value="mapping" class="pt-4">
+                    <div class="space-y-4" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
+                      <div v-if="!sample" class="text-sm text-muted-foreground">
+                        {{ t("template.noSampleForMapping") }}
+                      </div>
+                      <template v-else>
+                        <div class="flex items-center gap-2">
+                          <Button variant="outline" size="sm" @click="refreshSuggest">
+                            {{ t("template.rematch") }}
+                          </Button>
+                          <label class="ml-auto flex items-center gap-2 text-sm">
+                            <Checkbox
+                              :model-value="onlySelectedColumns"
+                              @update:model-value="(checked) => (onlySelectedColumns = checked === true)"
+                            />
+                            {{ t("template.onlySelectedColumns") }}
+                          </label>
+                        </div>
+                        <MappingTable
+                          :rows="mappingTableRows"
+                          @update:db-column="({ index, value }) => setColumn(index, value)"
+                        />
+                        <p v-if="selectedPathKeys.size" class="text-xs text-muted-foreground">
+                          {{ t("template.selectionColumns", { n: selectedPathKeys.size }) }}
+                        </p>
+                      </template>
+                      <SettingsGroup :title="t('template.constants')">
+                        <div
+                          v-for="(constant, index) in form.mapping.constants"
+                          :key="index"
+                          class="mb-2 grid grid-cols-[1fr_1fr_auto_auto] items-center gap-2"
+                        >
+                          <Input
+                            :model-value="constant.db_column"
+                            list="db-columns"
+                            :placeholder="t('template.pickColumn')"
+                            @update:model-value="(value) => setConstant(index, 'db_column', String(value))"
+                          />
+                          <Input
+                            :model-value="constant.value"
+                            :placeholder="
+                              constant.require_input ? t('template.constantDefault') : t('common.value')
+                            "
+                            @update:model-value="(value) => setConstant(index, 'value', String(value))"
+                          />
+                          <label class="flex shrink-0 items-center gap-1 text-sm whitespace-nowrap">
+                            <Checkbox
+                              :model-value="constant.require_input === true"
+                              @update:model-value="(checked) => setConstantFlag(index, 'require_input', checked === true)"
+                            />
+                            {{ t("template.requireInput") }}
+                          </label>
+                          <Button variant="ghost" size="sm" @click="removeConstant(index)">{{ t("common.remove") }}</Button>
+                        </div>
+                        <Button variant="outline" size="sm" @click="addConstant">{{ t("common.add") }}</Button>
+                      </SettingsGroup>
+                      <SettingsGroup :title="t('template.unpivot')">
+                        <UnpivotEditor v-model="form.mapping.unpivot" :columns="dbColumns" />
+                      </SettingsGroup>
+                    </div>
+                  </TabsContent>
 
-    <template v-else>
-    <label
-      class="flex min-h-64 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-muted-foreground"
-    >
-      <FileSpreadsheet class="h-8 w-8" />
-      <span>{{ t("template.uploadSample") }}</span>
-      <span class="text-xs">{{ t("template.sampleHint") }}</span>
-      <input type="file" accept=".xlsx" class="hidden" @change="onSample" />
-    </label>
-    <div v-if="form.mapping.columns.length">
-      <h2 class="mb-3 text-sm font-medium">{{ t("template.mapping") }}</h2>
-      <table class="w-full text-sm">
-        <tbody>
-          <tr v-for="(column, index) in form.mapping.columns" :key="pathKey(column.excel_path)" class="border-b">
-            <td class="py-1.5 pr-2">{{ pathLabel(column.excel_path) }}</td>
-            <td class="py-1.5 pr-2">
-              <Input
-                class="h-7"
-                :model-value="column.db_column"
-                list="db-columns"
-                :placeholder="t('template.pickColumn')"
-                :disabled="readOnly"
-                @update:model-value="(value) => setColumn(index, String(value))"
-              />
-            </td>
-            <td class="py-1.5 text-muted-foreground">
-              {{ suggestionScores.get(pathKey(column.excel_path)) ?? "—" }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <datalist id="db-columns">
-        <option v-for="column in dbColumns" :key="column" :value="column" />
-      </datalist>
-    </div>
-    </template>
-  </div>
+                  <TabsContent value="rules" class="pt-4">
+                    <div class="space-y-4" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
+                      <p v-if="activeLeafPathKey" class="text-xs text-muted-foreground">
+                        {{ t("template.selectedColumn") }}：{{ pathLabel(activeLeafPathKey.split("\u0000")) }}
+                        <span v-if="activeDbColumn"> → {{ activeDbColumn }}</span>
+                      </p>
+                      <RuleOverridesEditor v-model="form.rule_overrides" :columns="dbColumns" />
+                    </div>
+                  </TabsContent>
 
-  <!-- 设定窗：外壳见 PageDrawer（非模态、640px、顶边推到停靠栏底边之下，z-20）。 -->
-  <PageDrawer v-model:open="drawerOpen">
-    <template #title>{{ form.name || t("template.create") }}</template>
-      <div
-        v-if="showMissingBadges"
-        class="flex flex-wrap items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm"
-      >
-        <span class="font-medium text-destructive">{{ t("template.missingTitle") }}</span>
-        <Badge v-for="key in missingRequired" :key="key" variant="destructive">
-          {{ t(`template.missing.${key}`) }}
-        </Badge>
-      </div>
-      <div
-        v-if="pendingRowFill != null && activeTab !== 'start-row' && pageModel.state !== 'S1'"
-        class="flex items-center justify-between rounded-md bg-accent px-3 py-2.5 text-sm"
-      >
-        <span>{{ t("template.selectionRow", { n: pendingRowFill }) }}</span>
-        <Button size="sm" variant="outline" @click="applyAndGoToStartRow">
-          {{ t("template.bringFromSelection") }}
-        </Button>
-      </div>
+                  <TabsContent value="synonyms" class="pt-4">
+                    <div class="space-y-4" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
+                      <p v-if="activeLeafPathKey" class="text-xs text-muted-foreground">
+                        {{ t("template.selectedColumn") }}：{{ pathLabel(activeLeafPathKey.split("\u0000")) }}
+                        <span v-if="activeDbColumn"> → {{ activeDbColumn }}</span>
+                      </p>
+                      <SynonymGroups :workspace-id="workspaceId" />
+                    </div>
+                  </TabsContent>
+                </Tabs>        </div>
+      </template>
+      <template #preview>
+        <ViewerPreview
+          v-if="viewer.workbook.value"
+          :workbook="viewer.workbook.value"
+          :editable="viewerEditable(pageModel)"
+          :plugins="plugins"
+          :title="sampleFileName || t('template.sample')"
+          @selection-change="onSelection"
+          @sheet-change="onSheetChange"
+          @viewer-ready="onViewerReady"
+          @error="onViewerError"
+        />
+        <div v-else class="space-y-4">
+              <div v-if="showEntry" class="space-y-6 rounded-lg border p-6">
+                <div>
+                  <h2 class="text-lg font-semibold">
+                    {{ pageModel.state === "S2" ? t("template.entryTitleNew") : t("template.entryTitleEdit") }}
+                  </h2>
+                  <p v-if="pageModel.state === 'S3'" class="mt-1 text-sm text-muted-foreground">
+                    {{ t("template.entryKeepData") }}
+                  </p>
+                </div>
 
-      <div class="space-y-5" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
-        <DrawerSection :title="t('template.basicInfo')">
-          <div class="grid grid-cols-2 gap-3">
-            <div class="space-y-1.5">
-              <Label>{{ t("common.name") }}</Label>
-              <Input v-model="form.name" />
-            </div>
-            <div class="space-y-1.5">
-              <Label>{{ t("common.description") }}</Label>
-              <Input v-model="form.description" />
-            </div>
-            <div class="space-y-1.5">
-              <Label>{{ t("datasource.title") }}</Label>
-              <Select v-model="datasourceIdStr">
-                <SelectTrigger class="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="source in datasources" :key="source.id" :value="String(source.id)">
-                    {{ source.name }}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div class="space-y-1.5">
-              <Label>{{ t("template.target") }}</Label>
-              <Select :model-value="targetSelectValue" @update:model-value="onTargetSelect">
-                <SelectTrigger class="w-full"><SelectValue placeholder="—" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="(table, index) in tables" :key="table.name" :value="String(index)">
-                    {{ table.schema ? `${table.schema}.${table.name}` : table.name }}
-                  </SelectItem>
-                  <SelectSeparator />
-                  <SelectItem :value="AUTO_TABLE_VALUE">{{ t("template.autoTable") }}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div v-if="autoTableMode" class="mt-3 space-y-3 rounded-md border bg-muted/40 p-4">
-            <div class="space-y-1.5">
-              <Label>{{ t("template.autoTableName") }}</Label>
-              <Input v-model="autoTableName" />
-            </div>
-            <p v-if="previewHint" class="text-xs text-muted-foreground">{{ previewHint }}</p>
-            <Button variant="outline" size="sm" :disabled="!canPreviewDdl || inferring" @click="previewDdl">
-              {{ t("template.previewDdl") }}
-            </Button>
-          </div>
-          <div class="mt-3 grid grid-cols-2 gap-3">
-            <div class="space-y-1.5">
-              <Label>{{ t("template.sheet") }}</Label>
-              <Input v-model="form.sheet" />
-            </div>
-          </div>
-        </DrawerSection>
+                <section class="space-y-2">
+                  <h3 class="text-sm font-medium">
+                    {{ pageModel.state === "S3" ? t("template.entryStep1Replace") : t("template.entryStep1") }}
+                  </h3>
+                  <p class="text-sm text-muted-foreground">{{ t("template.entryStep1Hint") }}</p>
+                  <label
+                    class="inline-flex h-9 cursor-pointer items-center rounded-md border px-3 text-sm hover:bg-accent"
+                  >
+                    <Upload class="mr-1 h-4 w-4" />{{ t("template.uploadSample") }}
+                    <input type="file" accept=".xlsx" class="hidden" @change="onSample" />
+                  </label>
+                </section>
 
-        <Separator />
-
-        <DrawerSection :title="t('template.strategy')">
-          <Select v-model="form.strategy">
-            <SelectTrigger class="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="APPEND">{{ t("strategy.APPEND") }}</SelectItem>
-              <SelectItem value="UPSERT">{{ t("strategy.UPSERT") }}</SelectItem>
-              <SelectItem value="REPLACE_SCOPE">{{ t("strategy.REPLACE_SCOPE") }}</SelectItem>
-            </SelectContent>
-          </Select>
-          <div class="mt-3 space-y-1.5">
-            <Label>{{ t("template.businessKeys") }}</Label>
-            <div class="flex flex-wrap gap-2">
-              <label v-for="column in dbColumns" :key="column" class="flex items-center gap-1 text-sm">
-                <Checkbox
-                  :model-value="form.business_keys.includes(column)"
-                  @update:model-value="(checked) => toggleIn('business_keys', column, checked === true)"
-                />
-                {{ column }}
-              </label>
-            </div>
-          </div>
-          <div v-if="form.strategy === 'REPLACE_SCOPE'" class="mt-3 space-y-1.5">
-            <Label>{{ t("template.scopeColumns") }}</Label>
-            <div class="flex flex-wrap gap-2">
-              <label v-for="column in dbColumns" :key="column" class="flex items-center gap-1 text-sm">
-                <Checkbox
-                  :model-value="form.scope_columns.includes(column)"
-                  @update:model-value="(checked) => toggleIn('scope_columns', column, checked === true)"
-                />
-                {{ column }}
-              </label>
-            </div>
-          </div>
-          <p v-if="form.strategy === 'UPSERT' && !form.business_keys.length" class="mt-2 text-xs text-muted-foreground">
-            {{ t("template.upsertNeedsKeys") }}
-          </p>
-        </DrawerSection>
-      </div>
-
-      <Separator />
-
-      <Tabs v-model="activeTab" class="w-full">
-        <TabsList class="grid w-full grid-cols-4">
-          <TabsTrigger value="start-row">{{ t("template.quickStartRow") }}</TabsTrigger>
-          <TabsTrigger value="mapping">{{ t("template.quickMapping") }}</TabsTrigger>
-          <TabsTrigger value="rules">{{ t("template.rules") }}</TabsTrigger>
-          <TabsTrigger value="synonyms">{{ t("template.synonyms") }}</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="start-row" class="pt-4">
-          <div class="space-y-4" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
-            <div class="grid grid-cols-3 gap-3">
-              <div class="space-y-1.5">
-                <Label>{{ t("template.headerStart") }}</Label>
-                <Input v-model.number="form.header_start_row" type="number" min="1" />
+                <div class="flex justify-end">
+                  <Button @click="entryDismissed = true">{{ t("template.entryEnterEditor") }}</Button>
+                </div>
               </div>
-              <div class="space-y-1.5">
-                <Label>{{ t("template.headerRows") }}</Label>
-                <Input v-model.number="form.header_row_count" type="number" min="1" max="10" />
-              </div>
-              <div class="space-y-1.5">
-                <Label>{{ t("template.dataStartRow") }}</Label>
-                <Input v-model.number="dataStartRow" type="number" min="1" />
-              </div>
-            </div>
-            <div class="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                :disabled="pendingRowFill == null"
-                @click="pendingRowFill != null && applyDataStartRow(pendingRowFill)"
+              <template v-else>
+              <label
+                class="flex min-h-64 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-muted-foreground"
               >
-                {{ t("template.bringFromSelection") }}
-              </Button>
-              <Button variant="outline" size="sm" :disabled="!sample" @click="detectHeader">
-                {{ t("template.detectHeader") }}
-              </Button>
-              <Button variant="ghost" size="sm" @click="restoreHeaderStart">{{ t("template.restore") }}</Button>
-            </div>
-            <p v-if="pendingRowFill != null" class="text-sm text-muted-foreground">
-              {{ t("template.selectionRow", { n: pendingRowFill }) }}
-            </p>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="mapping" class="pt-4">
-          <div class="space-y-4" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
-            <div v-if="!sample" class="text-sm text-muted-foreground">
-              {{ t("template.noSampleForMapping") }}
-            </div>
-            <template v-else>
-              <div class="flex items-center gap-2">
-                <Button variant="outline" size="sm" @click="refreshSuggest">
-                  {{ t("template.rematch") }}
-                </Button>
-                <label class="ml-auto flex items-center gap-2 text-sm">
-                  <Checkbox
-                    :model-value="onlySelectedColumns"
-                    @update:model-value="(checked) => (onlySelectedColumns = checked === true)"
-                  />
-                  {{ t("template.onlySelectedColumns") }}
-                </label>
+                <FileSpreadsheet class="h-8 w-8" />
+                <span>{{ t("template.uploadSample") }}</span>
+                <span class="text-xs">{{ t("template.sampleHint") }}</span>
+                <input type="file" accept=".xlsx" class="hidden" @change="onSample" />
+              </label>
+              <div v-if="form.mapping.columns.length">
+                <h2 class="mb-3 text-sm font-medium">{{ t("template.mapping") }}</h2>
+                <table class="w-full text-sm">
+                  <tbody>
+                    <tr v-for="(column, index) in form.mapping.columns" :key="pathKey(column.excel_path)" class="border-b">
+                      <td class="py-1.5 pr-2">{{ pathLabel(column.excel_path) }}</td>
+                      <td class="py-1.5 pr-2">
+                        <Input
+                          class="h-7"
+                          :model-value="column.db_column"
+                          list="db-columns"
+                          :placeholder="t('template.pickColumn')"
+                          :disabled="readOnly"
+                          @update:model-value="(value) => setColumn(index, String(value))"
+                        />
+                      </td>
+                      <td class="py-1.5 text-muted-foreground">
+                        {{ suggestionScores.get(pathKey(column.excel_path)) ?? "—" }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
-              <MappingTable
-                :rows="mappingTableRows"
-                @update:db-column="({ index, value }) => setColumn(index, value)"
-              />
-              <p v-if="selectedPathKeys.size" class="text-xs text-muted-foreground">
-                {{ t("template.selectionColumns", { n: selectedPathKeys.size }) }}
-              </p>
-            </template>
-            <DrawerSection :title="t('template.constants')">
-              <div
-                v-for="(constant, index) in form.mapping.constants"
-                :key="index"
-                class="mb-2 grid grid-cols-[1fr_1fr_auto_auto] items-center gap-2"
-              >
-                <Input
-                  :model-value="constant.db_column"
-                  list="db-columns"
-                  :placeholder="t('template.pickColumn')"
-                  @update:model-value="(value) => setConstant(index, 'db_column', String(value))"
-                />
-                <Input
-                  :model-value="constant.value"
-                  :placeholder="
-                    constant.require_input ? t('template.constantDefault') : t('common.value')
-                  "
-                  @update:model-value="(value) => setConstant(index, 'value', String(value))"
-                />
-                <label class="flex shrink-0 items-center gap-1 text-sm whitespace-nowrap">
-                  <Checkbox
-                    :model-value="constant.require_input === true"
-                    @update:model-value="(checked) => setConstantFlag(index, 'require_input', checked === true)"
-                  />
-                  {{ t("template.requireInput") }}
-                </label>
-                <Button variant="ghost" size="sm" @click="removeConstant(index)">{{ t("common.remove") }}</Button>
-              </div>
-              <Button variant="outline" size="sm" @click="addConstant">{{ t("common.add") }}</Button>
-            </DrawerSection>
-            <DrawerSection :title="t('template.unpivot')">
-              <UnpivotEditor v-model="form.mapping.unpivot" :columns="dbColumns" />
-            </DrawerSection>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="rules" class="pt-4">
-          <div class="space-y-4" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
-            <p v-if="activeLeafPathKey" class="text-xs text-muted-foreground">
-              {{ t("template.selectedColumn") }}：{{ pathLabel(activeLeafPathKey.split("\u0000")) }}
-              <span v-if="activeDbColumn"> → {{ activeDbColumn }}</span>
-            </p>
-            <RuleOverridesEditor v-model="form.rule_overrides" :columns="dbColumns" />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="synonyms" class="pt-4">
-          <div class="space-y-4" :class="readOnly ? 'pointer-events-none opacity-60' : ''">
-            <p v-if="activeLeafPathKey" class="text-xs text-muted-foreground">
-              {{ t("template.selectedColumn") }}：{{ pathLabel(activeLeafPathKey.split("\u0000")) }}
-              <span v-if="activeDbColumn"> → {{ activeDbColumn }}</span>
-            </p>
-            <SynonymGroups :workspace-id="workspaceId" />
-          </div>
-        </TabsContent>
-      </Tabs>
-  </PageDrawer>
+              </template>
+        </div>
+      </template>
+    </DetailShell>
+  </div>
+  <datalist id="db-columns">
+    <option v-for="column in dbColumns" :key="column" :value="column" />
+  </datalist>
 
   <!-- 建表语句预览对话框 -->
   <Dialog :open="ddlDialogOpen" @update:open="(value) => (ddlDialogOpen = value)">
@@ -575,7 +508,7 @@
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
-import { Check, ChevronDown, FileSpreadsheet, Loader2, Pencil, Plus, SlidersHorizontal, Upload, X, Zap } from "@lucide/vue";
+import { Check, ChevronDown, FileSpreadsheet, Loader2, Pencil, Plus, Upload, X, Zap } from "@lucide/vue";
 import { toast } from "vue-sonner";
 
 import { ApiError, api } from "@/api/client";
@@ -617,16 +550,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
+import DetailShell from "@/components/layout/DetailShell.vue";
+import SettingsGroup from "@/components/layout/SettingsGroup.vue";
+import ViewerPreview from "@/components/layout/ViewerPreview.vue";
 import DockBar from "@/components/layout/DockBar.vue";
-import DrawerSection from "@/components/layout/DrawerSection.vue";
-import PageDrawer from "@/components/layout/PageDrawer.vue";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import MappingTable from "@/components/template/MappingTable.vue";
 import RuleOverridesEditor from "@/components/template/RuleOverridesEditor.vue";
 import SynonymGroups from "@/components/template/SynonymGroups.vue";
 import UnpivotEditor from "@/components/template/UnpivotEditor.vue";
-import ExcelViewerHost from "@/features/excel-viewer/ExcelViewerHost.vue";
 import {
   modelSheetIndex,
   modelToParsedSheet,
@@ -778,7 +710,6 @@ function setSaveStep(key: SaveStep["key"], status: SaveStepStatus, detail = ""):
     step.detail = detail;
   }
 }
-const drawerOpen = ref(false);
 const activeTab = ref("start-row");
 const onlySelectedColumns = ref(false);
 const pendingRowFill = ref<number | null>(null);
@@ -1072,7 +1003,6 @@ async function loadTemplate(id: number): Promise<void> {
   };
   savedSnapshot.value = JSON.stringify(form.value);
   pageModel.value = { state: "S1", returnState: "S0", selectedId: id, previousId: null };
-  drawerOpen.value = false;
 }
 
 function enterNewDraft(): void {
@@ -1081,7 +1011,6 @@ function enterNewDraft(): void {
   savedSnapshot.value = JSON.stringify(form.value);
   pageModel.value = transition(pageModel.value, { type: "startNew" });
   // 新建先呈现入口面板（选/上传样例 → 基础配置），不再自动打开配置抽屉。
-  drawerOpen.value = false;
 }
 
 async function selectTemplate(id: number): Promise<void> {
@@ -1089,7 +1018,6 @@ async function selectTemplate(id: number): Promise<void> {
   if (dirty.value && (await askDiscard()) === false) return;
   resetSample();
   pageModel.value = transition(pageModel.value, { type: "select", id });
-  drawerOpen.value = false;
   await router.push(`/templates/${id}`);
 }
 
@@ -1108,7 +1036,6 @@ async function cancelEdit(): Promise<void> {
   if (dirty.value && (await askDiscard()) === false) return;
   const before = pageModel.value;
   pageModel.value = transition(before, { type: "cancel" });
-  drawerOpen.value = false;
   if (before.state === "S3") {
     if (before.selectedId != null) await guarded(() => loadTemplate(before.selectedId as number));
   } else if (before.state === "S2") {
@@ -1203,9 +1130,12 @@ async function onTemplateSelect(value: unknown): Promise<void> {
   if (!Number.isNaN(id)) await selectTemplate(id);
 }
 
+const settingsRef = ref<HTMLElement | null>(null);
+
+/** 快速导入：切到对应 Tab，并把左侧设定区滚到视野内（设定已常驻，不再开抽屉）。 */
 function openQuickImport(tab: string): void {
   activeTab.value = tab;
-  drawerOpen.value = true;
+  settingsRef.value?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 /* ---------- 样例解析与建议映射 ---------- */
@@ -1299,7 +1229,7 @@ function handleSelectionFill(sel: ViewerSelection): void {
   if (sel.kind !== "row") return;
   const excelRow = sel.range.top + 1;
   pendingRowFill.value = excelRow;
-  if (drawerOpen.value && activeTab.value === "start-row" && pageModel.value.state !== "S1") {
+  if (activeTab.value === "start-row" && pageModel.value.state !== "S1") {
     const before = form.value.header_start_row;
     applyDataStartRow(excelRow);
     if (form.value.header_start_row !== before) {

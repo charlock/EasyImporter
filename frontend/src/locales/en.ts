@@ -58,6 +58,16 @@ export default {
     selectedCount: "{n} selected", viewExpiredMapping: "The mapping of this template version is no longer available",
     operator: "Operator", createdAt: "Created at",
     dataViewReadOnly: "Read-only: cells cannot be edited and there is nothing to submit",
+    newImport: "New import",
+  },
+  list: {
+    selectedOf: "{selected} of {total} row(s) selected",
+    rowsPerPage: "Rows per page",
+    pageOf: "Page {page} of {pages}",
+  },
+  detail: {
+    preview: "Preview", expand: "Expand", exitExpand: "Exit fullscreen",
+    settings: "Settings", overview: "Overview",
   },
   status: {
     QUEUED: "Queued", RUNNING: "Running", COMMITTING: "Committing", SUCCEEDED: "Succeeded",
@@ -106,6 +116,7 @@ export default {
     // Phase 2 - templates
     listDescription: "Manage import templates: datasource, target table, write strategy and business keys.",
     datasourceColumn: "Datasource",
+    notArchived: "Active",
     clone: "Clone",
     cloned: "Cloned as “{name}”",
     deleted: "Template deleted (archived)",

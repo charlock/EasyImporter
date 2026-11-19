@@ -1495,6 +1495,9 @@ async function runAutoCreate(
       target_table: autoTableName.value,
       columns,
       unique_keys: form.value.business_keys,
+      // 让后端也按策略校验：UPSERT 没业务键时后端直接拒掉，表建不出来；
+      // 界面上的保存按钮/建表按钮本来就拦着，这里是 API 层的第二道防线。
+      strategy: form.value.strategy,
     },
   );
 }

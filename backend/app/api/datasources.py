@@ -11,7 +11,7 @@ from app.core.crypto import encrypt
 from app.core.db import get_session
 from app.core.errors import ApiError
 from app.core.security import ensure_member, require_admin, require_admin_write
-from app.models.entities import DB_TYPES, POSTGRES, Datasource, TemplateVersion, User
+from app.models.entities import DB_TYPES, POSTGRES, UPSERT, Datasource, TemplateVersion, User
 from app.schemas.dto import (
     AutoCreateRequest,
     ColumnOut,
@@ -194,6 +194,11 @@ def auto_create_table(workspace_id: int, datasource_id: int, payload: AutoCreate
         validate_identifier(payload.target_table, "表名")
         validate_unique_keys(
             [{"db_column": column.db_column} for column in payload.columns], payload.unique_keys)
+        # UPSERT 没带业务键时直接拒绝：否则会建出一张没有唯一约束的表，而后续
+        # 保存模板在 validate_template 里报 UNIQUE_KEY_REQUIRED 失败，孤表
+        # 就留下了。校验放在 create_table 之前，表根本不会建出来。
+        if (payload.strategy or "").upper() == UPSERT and not payload.unique_keys:
+            raise ApiError("UNIQUE_KEY_REQUIRED", {"business_keys": []})
         columns = [{"db_column": column.db_column, "db_type": column.db_type,
                     "nullable": column.nullable} for column in payload.columns]
         ddl = build_create_table_ddl(payload.target_schema, payload.target_table, columns,

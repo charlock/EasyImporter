@@ -135,6 +135,10 @@ class AutoCreateRequest(BaseModel):
     target_table: str
     columns: list[AutoCreateColumnIn] = Field(min_length=1)
     unique_keys: list[str] = []
+    strategy: str | None = None
+    # 写入策略：UPSERT 时必须带业务键（unique_keys），否则建出的表没有唯一约束、
+    # 后续保存模板会在 UNIQUE_KEY_REQUIRED 失败并留下一张孤表。老客户端不传时
+    # 保持原行为（只按 unique_keys 建表），不追溯拦截。
 
 
 class TableSchemaOut(BaseModel):

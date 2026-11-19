@@ -291,6 +291,46 @@ def test_auto_create_rejects_non_postgres_and_bad_input(env, target, monkeypatch
     assert response.json()["code"] == "VALIDATION_FAILED"
 
 
+def test_auto_create_rejects_upsert_without_business_keys(env, target, monkeypatch):
+    """UPSERT 没带业务键时建表直接拒掉，表建不出来（不再留孤表）。
+
+    回归 2026-11-18 前端 guard 只拦界面入口、API 直调仍能建出无唯一约束
+    的表的缺口：strategy=UPSERT + unique_keys 为空 → 422 UNIQUE_KEY_REQUIRED，
+    且目标库里没有这张表；APPEND 不带业务键、UPSERT 带业务键都不受影响。
+    """
+    client, _ = env
+    headers = _csrf(client, _login(client))
+    wid, dsid = _setup(client, headers, monkeypatch, target)
+
+    def body(table, strategy, unique_keys):
+        return {"target_schema": "", "target_table": table, "strategy": strategy, "columns": [
+            {"db_column": "serial_no", "db_type": "INTEGER", "nullable": False},
+            {"db_column": "amount", "db_type": "NUMERIC(18,4)", "nullable": True},
+        ], "unique_keys": unique_keys}
+
+    response = client.post(
+        f"/api/v1/workspaces/{wid}/datasources/{dsid}/tables/auto-create",
+        json=body("tmp_upsert_no_keys", "UPSERT", []), headers=headers)
+    assert response.status_code == 422, response.text
+    assert response.json()["code"] == "UNIQUE_KEY_REQUIRED"
+    with target.engine.connect() as conn:
+        assert conn.execute(text(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'tmp_upsert_no_keys'"
+        )).scalar() == 0
+
+    # APPEND 不带业务键：照常建表，不受影响。
+    response = client.post(
+        f"/api/v1/workspaces/{wid}/datasources/{dsid}/tables/auto-create",
+        json=body("tmp_append_no_keys", "APPEND", []), headers=headers)
+    assert response.status_code == 200, response.text
+
+    # UPSERT 带业务键：照常建表。
+    response = client.post(
+        f"/api/v1/workspaces/{wid}/datasources/{dsid}/tables/auto-create",
+        json=body("tmp_upsert_with_keys", "UPSERT", ["serial_no"]), headers=headers)
+    assert response.status_code == 200, response.text
+
+
 def test_table_endpoints_require_admin(env, target, monkeypatch):
     client, _ = env
     me = _login(client)

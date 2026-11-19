@@ -120,9 +120,9 @@
                         <Label>{{ t("common.name") }}</Label>
                         <Input v-model="form.name" />
                       </div>
-                      <div class="space-y-1.5">
+                      <div class="col-span-2 space-y-1.5">
                         <Label>{{ t("common.description") }}</Label>
-                        <Input v-model="form.description" />
+                        <RichTextEditor v-model="form.description" :editable="!readOnly" />
                       </div>
                       <div class="space-y-1.5">
                         <Label>{{ t("datasource.title") }}</Label>
@@ -140,11 +140,26 @@
                         <Select :model-value="targetSelectValue" @update:model-value="onTargetSelect">
                           <SelectTrigger class="w-full"><SelectValue placeholder="—" /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem v-for="(table, index) in tables" :key="table.name" :value="String(index)">
+                            <SelectItem :value="AUTO_TABLE_VALUE">{{ t("template.autoTable") }}</SelectItem>
+                            <SelectSeparator />
+                            <div class="px-2 py-1.5">
+                              <Input
+                                v-model="targetTableQuery"
+                                :placeholder="t('template.targetTableSearch')"
+                                @keydown.stop
+                                @pointerdown.stop
+                              />
+                            </div>
+                            <SelectItem
+                              v-for="table in filteredTables"
+                              :key="tableKey(table)"
+                              :value="tableKey(table)"
+                            >
                               {{ table.schema ? `${table.schema}.${table.name}` : table.name }}
                             </SelectItem>
-                            <SelectSeparator />
-                            <SelectItem :value="AUTO_TABLE_VALUE">{{ t("template.autoTable") }}</SelectItem>
+                            <p v-if="!filteredTables.length" class="px-3 py-2 text-sm text-muted-foreground">
+                              {{ t("common.empty") }}
+                            </p>
                           </SelectContent>
                         </Select>
                       </div>
@@ -277,6 +292,12 @@
                         </p>
                       </template>
                       <SettingsGroup :title="t('template.constants')">
+                        <div class="mb-1 grid grid-cols-[1fr_1fr_auto_auto] gap-2 text-xs text-muted-foreground">
+                          <span>{{ t("template.constantField") }}</span>
+                          <span>{{ t("common.value") }}</span>
+                          <span />
+                          <span />
+                        </div>
                         <div
                           v-for="(constant, index) in form.mapping.constants"
                           :key="index"
@@ -340,6 +361,7 @@
           :editable="viewerEditable(pageModel)"
           :plugins="plugins"
           :title="sampleFileName || t('template.sample')"
+          :max-height="'calc(100vh - (3.5rem + 53px + 1.5rem) - 1rem)'"
           @selection-change="onSelection"
           @sheet-change="onSheetChange"
           @viewer-ready="onViewerReady"
@@ -511,7 +533,7 @@ import { useRoute, useRouter } from "vue-router";
 import { Check, ChevronDown, FileSpreadsheet, Loader2, Pencil, Plus, Upload, X, Zap } from "@lucide/vue";
 import { toast } from "vue-sonner";
 
-import { ApiError, api } from "@/api/client";
+import { ApiError, api, fetchBlob } from "@/api/client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -554,6 +576,7 @@ import DetailShell from "@/components/layout/DetailShell.vue";
 import SettingsGroup from "@/components/layout/SettingsGroup.vue";
 import ViewerPreview from "@/components/layout/ViewerPreview.vue";
 import DockBar from "@/components/layout/DockBar.vue";
+import RichTextEditor from "@/components/RichTextEditor.vue";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import MappingTable from "@/components/template/MappingTable.vue";
 import RuleOverridesEditor from "@/components/template/RuleOverridesEditor.vue";
@@ -580,6 +603,7 @@ import {
   type TemplatePageModel,
 } from "@/features/template/state";
 import { errorMessageWithDetail } from "@/lib/errors";
+import { filterTargetTables, tableKey } from "@/lib/tables";
 import { pathLabel } from "@/features/header/tree";
 import type {
   Datasource,
@@ -692,10 +716,11 @@ const suggestions = ref<Suggestion[]>([]);
 const error = ref("");
 const saving = ref(false);
 
-/** 保存时的执行步骤：自动建表模式下先建表再保存，否则只有保存一步。 */
+/** 保存时的执行步骤：自动建表模式下先建表再保存，否则只有保存一步；
+ * 本次会话新选了样例时，再加一步“上传样例”（模板保存成功后才有 id 可传）。 */
 type SaveStepStatus = "pending" | "running" | "done" | "failed";
 interface SaveStep {
-  key: "create-table" | "save-template";
+  key: "create-table" | "save-template" | "save-sample";
   label: string;
   status: SaveStepStatus;
   detail: string;
@@ -722,6 +747,10 @@ const viewer = useExcelViewer();
 const errorCells = ref<ReadonlySet<string>>(new Set());
 const sample = ref<AdaptedSheet | null>(null);
 const sampleFileName = ref("");
+/** 本次会话新选的样例文件：保存成功后上传落盘；打开旧模板时下载的样例
+ * 不经过这里（已在服务端），不重复上传。 */
+const sampleFile = ref<File | null>(null);
+const sampleDirty = ref(false);
 
 const showEntry = computed(() =>
   shouldShowEntry(pageModel.value, {
@@ -771,20 +800,21 @@ const datasourceIdStr = computed({
   },
 });
 
-const selectedTableIndex = computed({
-  get: () => {
-    const index = tables.value.findIndex(
-      (table) => table.schema === form.value.target_schema && table.name === form.value.target_table,
-    );
-    return index === -1 ? "" : String(index);
-  },
-  set: (index: string) => onTableIndex(index),
+const selectedTableKey = computed(() => {
+  const table = tables.value.find(
+    (item) => item.schema === form.value.target_schema && item.name === form.value.target_table,
+  );
+  return table ? tableKey(table) : "";
 });
 
 const targetSelectValue = computed({
-  get: () => (autoTableMode.value ? AUTO_TABLE_VALUE : selectedTableIndex.value),
+  get: () => (autoTableMode.value ? AUTO_TABLE_VALUE : selectedTableKey.value),
   set: (value: string) => onTargetSelect(value),
 });
+
+/** 目标表下拉的查询过滤；选表后清空查询，下次打开仍是全量列表。 */
+const targetTableQuery = ref("");
+const filteredTables = computed(() => filterTargetTables(tables.value, targetTableQuery.value));
 
 const selectedDatasource = computed(
   () => datasources.value.find((source) => source.id === form.value.datasource_id) ?? null,
@@ -906,6 +936,8 @@ function onDiscardOpenChange(open: boolean): void {
 function resetSample(): void {
   sample.value = null;
   sampleFileName.value = "";
+  sampleFile.value = null;
+  sampleDirty.value = false;
   pendingRowFill.value = null;
   entryDismissed.value = false;
   viewer.workbook.value = null;
@@ -957,15 +989,15 @@ function toggleIn(field: "business_keys" | "scope_columns", column: string, chec
   form.value = { ...form.value, [field]: next };
 }
 
-function onTableIndex(index: string): void {
-  if (index === "") return;
-  const table = tables.value[Number(index)];
+function onTableKey(key: string): void {
+  const table = tables.value.find((item) => tableKey(item) === key);
   if (!table) return;
   form.value = { ...form.value, target_schema: table.schema, target_table: table.name };
 }
 
 function onTargetSelect(value: unknown): void {
   if (typeof value !== "string") return;
+  targetTableQuery.value = "";
   if (value === AUTO_TABLE_VALUE) {
     autoTableMode.value = true;
     // 切到自动建表后，之前选过的目标表就不再是本次保存的目标：清掉，避免保存时
@@ -975,7 +1007,7 @@ function onTargetSelect(value: unknown): void {
     return;
   }
   autoTableMode.value = false;
-  onTableIndex(value);
+  onTableKey(value);
 }
 
 /* ---------- 模板加载 / 状态转移 ---------- */
@@ -1003,6 +1035,11 @@ async function loadTemplate(id: number): Promise<void> {
   };
   savedSnapshot.value = JSON.stringify(form.value);
   pageModel.value = { state: "S1", returnState: "S0", selectedId: id, previousId: null };
+  // 再次编辑要能看到当初的样例：服务端存过样例就下载回显（前端重新解析，
+  // 只刷新建议分数，不覆写已保存的映射）；下载失败只记错误，不阻断编辑。
+  if (data.has_sample) {
+    await loadStoredSample(id, data.sample_file_name ?? "");
+  }
 }
 
 function enterNewDraft(): void {
@@ -1064,6 +1101,14 @@ async function saveTemplate(): Promise<void> {
     });
   }
   steps.push({ key: "save-template", label: t("template.saveStepSaveTemplate"), status: "pending", detail: "" });
+  if (sampleDirty.value) {
+    steps.push({
+      key: "save-sample",
+      label: t("template.saveStepSaveSample"),
+      status: "pending",
+      detail: sampleFileName.value,
+    });
+  }
   saveSteps.value = steps;
   saveDialogOpen.value = true;
   try {
@@ -1104,6 +1149,20 @@ async function saveTemplate(): Promise<void> {
       savedId = created.id;
     }
     setSaveStep("save-template", "done");
+    // 本次会话新选了样例：模板已保存（有了 id），再把样例原文件上传落盘，
+    // 下次编辑时才能回显。上传失败时对话框保持打开、不跳转，模板本身已保存。
+    if (sampleDirty.value && savedId != null && sampleFile.value) {
+      setSaveStep("save-sample", "running");
+      const formData = new FormData();
+      formData.append("file", sampleFile.value);
+      await api.upload<{ ok: boolean }>(
+        `/workspaces/${props.workspaceId}/templates/${savedId}/sample`,
+        formData,
+      );
+      setSaveStep("save-sample", "done");
+      sampleDirty.value = false;
+      sampleFile.value = null;
+    }
     saveDialogOpen.value = false;
     if (savedId != null) {
       pageModel.value = transition(pageModel.value, { type: "saveSuccess", id: savedId });
@@ -1181,24 +1240,46 @@ async function resuggest(applyMapping: boolean): Promise<void> {
   }
 }
 
+/** 把一个样例文件载入 viewer 并按当前表头设定适配；applyToForm 为真时
+ * 按样例工作表名回填 sheet 并重新建议映射（用户新传样例时），为假时只
+ * 刷新建议分数、不动已保存的映射（服务端样例回显时）。 */
+async function loadSampleFile(file: File, applyToForm: boolean): Promise<void> {
+  const model = await viewer.loadFile(file);
+  sampleFileName.value = file.name;
+  const idx = modelSheetIndex(model, form.value.sheet);
+  const sheetIdx = idx >= 0 ? idx : (model.activeSheet ?? 0);
+  if (viewer.workbook.value) viewer.workbook.value.activeSheet = sheetIdx;
+  viewer.activeSheetIndex.value = sheetIdx;
+  viewer.selectSheet(sheetIdx);
+  adaptSheet(sheetIdx, applyToForm);
+  await resuggest(applyToForm);
+  // 样例已挂上：入口面板收起，进入正常编辑器视图。
+  entryDismissed.value = true;
+}
+
+/** 下载服务端存过的样例并回显；下载失败只记错误，不阻断编辑。 */
+async function loadStoredSample(id: number, fileName: string): Promise<void> {
+  try {
+    const blob = await fetchBlob(`/workspaces/${props.workspaceId}/templates/${id}/sample`);
+    const file = new File([blob], fileName || "sample.xlsx", {
+      type: blob.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    await loadSampleFile(file, false);
+  } catch (caught) {
+    error.value = errorMessageWithDetail(caught);
+  }
+}
+
 const onSample = (event: Event) =>
   guarded(async () => {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     input.value = "";
     if (!file) return;
-    const model = await viewer.loadFile(file);
-    sampleFileName.value = file.name;
-    const idx = modelSheetIndex(model, form.value.sheet);
-    const sheetIdx = idx >= 0 ? idx : (model.activeSheet ?? 0);
-    if (viewer.workbook.value) viewer.workbook.value.activeSheet = sheetIdx;
-    viewer.activeSheetIndex.value = sheetIdx;
-    viewer.selectSheet(sheetIdx);
+    sampleFile.value = file;
+    sampleDirty.value = true;
     const inEdit = pageModel.value.state === "S2" || pageModel.value.state === "S3";
-    adaptSheet(sheetIdx, inEdit);
-    await resuggest(inEdit);
-    // 样例已挂上：入口面板收起，进入正常编辑器视图。
-    entryDismissed.value = true;
+    await loadSampleFile(file, inEdit);
   });
 
 const onSheetChange = (payload: { index: number; name: string }) =>

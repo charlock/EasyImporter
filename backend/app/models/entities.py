@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -151,6 +152,24 @@ class TemplateVersion(Base):
     rule_overrides: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TemplateSample(Base):
+    """模板样例原文件：每模板一份（最新上传的为准），供再次编辑时回显。
+
+    单独成表、与 Template/TemplateVersion 分离：样例是二进制大对象，不应
+    被模板列表查询顺带读出（列表只 select Template 行，样例只在下载时按
+    template_id 精确取）。克隆模板时把样例一并复制；模板归档后样例保留，
+    仍可在详情里查看。"""
+
+    __tablename__ = "template_samples"
+
+    template_id: Mapped[int] = mapped_column(ForeignKey("templates.id"), primary_key=True)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class SynonymGroup(Base):

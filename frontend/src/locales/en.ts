@@ -110,7 +110,8 @@ export default {
     missingTitle: "To complete", missing: { name: "Name", datasource: "Datasource", targetTable: "Target table", mapping: "Mapped column", businessKeys: "Business keys" },
     tableExists: "Target table {table} already exists", useExistingTable: "Use the existing table",
     saveProgressTitle: "Saving template", saveStepCreateTable: "Create table",
-    saveStepSaveTemplate: "Save template", saveStepTableCreated: "Created {table} ({n} columns)",
+    saveStepSaveTemplate: "Save template", saveStepSaveSample: "Upload sample",
+    saveStepTableCreated: "Created {table} ({n} columns)",
     saveStepTableReused: "Target table already exists, using {table}",
     dbType: "Type", nullable: "Nullable",
     // Phase 2 - templates
@@ -132,6 +133,13 @@ export default {
     entryStep2Hint: "Fill in the name, datasource, target table and write strategy first; mapping, rules and more can be completed in the drawer.",
     entryOpenConfig: "Open full settings",
     entryEnterEditor: "Enter editor",
+    targetTableSearch: "Search tables…",
+    constantField: "Field",
+  },
+  richtext: {
+    bold: "Bold", italic: "Italic", strike: "Strikethrough", heading1: "Heading 1", heading2: "Heading 2",
+    bulletList: "Bullet list", orderedList: "Ordered list", link: "Link", linkPrompt: "Enter link URL",
+    clearFormatting: "Clear formatting",
   },
   strategy: { APPEND: "Append only", UPSERT: "Upsert", REPLACE_SCOPE: "Replace by scope" },
   datasource: {

@@ -48,7 +48,9 @@ const error = ref("");
 const deleteTarget = ref<Template | null>(null);
 const deleteOpen = ref(false);
 const search = ref("");
-const archivedFilter = ref("all");
+/** 状态过滤默认“未归档”：删除是软删除（行变已归档），默认视图下删完行即
+ * 消失；已归档的模板仍可在“已归档”过滤下找到，导入记录不受影响。 */
+const archivedFilter = ref("active");
 const page = ref(1);
 const pageSize = ref(20);
 const selected = ref(new Set<number>());

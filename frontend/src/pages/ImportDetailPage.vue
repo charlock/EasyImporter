@@ -474,6 +474,7 @@ const exportErrors = () =>
           :plugins="viewerPlugins"
           :error-cells="errorCells"
           :title="t('import.dataView')"
+          :max-height="'calc(100vh - (3.5rem + 1.5rem) - 1rem)'"
           @selection-change="onViewerSelection"
           @sheet-change="onViewerSheetChange"
           @viewer-ready="onViewerReady"

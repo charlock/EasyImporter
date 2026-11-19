@@ -1,8 +1,11 @@
 <!-- excel-viewer 预览卡片：详情设定页右侧的预览区（invoice 页的 Preview 卡片位置）。
   只用 ExcelViewerHost 的公开接口；放大走全屏 API（同一 viewer 实例不重建），
-  全屏不可用或被拒绝时退到 fixed 覆盖层；退出时恢复。 -->
+  全屏不可用或被拒绝时退到 fixed 覆盖层；退出时恢复。
+  高度：卡片本身是 flex 列，maxHeight 把整张卡（含标题栏）约束在内容区高度内，
+  预览区 flex-1 min-h-0 收缩——一屏内能看到 Excel 全貌，包括底部 Sheet 标签；
+  高度不写死像素，由调用方按粘住位置传 calc 值。 -->
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { Maximize2, Minimize2 } from "@lucide/vue";
 import type {
@@ -25,10 +28,20 @@ const props = withDefaults(
     plugins?: ExcelPlugin[];
     errorCells?: ReadonlySet<string>;
     title: string;
-    /** 未放大时的容器高度类名（默认与两页现有的 viewer 高度一致）。 */
+    /** 未放大时预览区的高度类名（不传 maxHeight 时的旧行为：固定视口高度）。 */
     containerClass?: string;
+    /** 未放大时整张卡的最大高度（CSS 值，如 calc(100vh - 粘住偏移 - 底边距)）；
+     * 传了它，卡片取该高度、预览区改为 flex-1 min-h-0 收缩，整张卡不超内容区
+     * 高度（高度必须定死，flex 链才有确定尺寸可分，否则 viewer 会塌到 0）。 */
+    maxHeight?: string;
   }>(),
   { containerClass: "h-[calc(100vh-13rem)] min-h-[480px]" },
+);
+
+const viewerContainerClass = computed(() =>
+  props.maxHeight
+    ? "min-h-0 flex-1 overflow-hidden rounded-lg border"
+    : `${props.containerClass} overflow-hidden rounded-lg border`,
 );
 
 const emit = defineEmits<{
@@ -91,8 +104,8 @@ onBeforeUnmount(() => document.removeEventListener("fullscreenchange", onFullscr
     ref="container"
     :class="expanded && fallback ? 'fixed inset-0 z-50 overflow-auto bg-background p-4' : ''"
   >
-    <Card :class="expanded ? 'h-full' : ''">
-      <CardHeader>
+    <Card :class="expanded ? 'h-full' : 'flex min-h-0 flex-col'" :style="!expanded && props.maxHeight ? { height: props.maxHeight, maxHeight: props.maxHeight } : undefined">
+      <CardHeader class="shrink-0">
         <CardTitle class="flex items-center justify-between gap-2">
           <span class="min-w-0 truncate">{{ title }}</span>
           <span class="flex shrink-0 items-center gap-2">
@@ -110,9 +123,9 @@ onBeforeUnmount(() => document.removeEventListener("fullscreenchange", onFullscr
           </span>
         </CardTitle>
       </CardHeader>
-      <CardContent class="space-y-3">
+      <CardContent class="flex min-h-0 flex-1 flex-col gap-3">
         <slot name="above" />
-        <div :class="expanded ? 'h-[calc(100vh-10rem)] min-h-[480px] overflow-hidden rounded-lg border' : `${props.containerClass} overflow-hidden rounded-lg border`">
+        <div :class="expanded ? 'h-[calc(100vh-10rem)] min-h-[480px] overflow-hidden rounded-lg border' : viewerContainerClass">
           <ExcelViewerHost
             v-if="workbook"
             :workbook="workbook"

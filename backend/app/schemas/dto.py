@@ -218,6 +218,8 @@ class TemplateOut(BaseModel):
     description: str
     current_version: int
     is_archived: bool
+    has_sample: bool = False
+    sample_file_name: str | None = None
     datasource_id: int | None = None
     target_schema: str = ""
     target_table: str = ""

@@ -106,7 +106,8 @@ export default {
     missingTitle: "待完善", missing: { name: "名称", datasource: "数据源", targetTable: "目标表", mapping: "映射列", businessKeys: "业务键" },
     tableExists: "目标表 {table} 已存在", useExistingTable: "使用已存在表",
     saveProgressTitle: "正在保存模板", saveStepCreateTable: "创建数据表",
-    saveStepSaveTemplate: "保存模板", saveStepTableCreated: "已创建 {table}（{n} 列）",
+    saveStepSaveTemplate: "保存模板", saveStepSaveSample: "上传样例",
+    saveStepTableCreated: "已创建 {table}（{n} 列）",
     saveStepTableReused: "目标表已存在，直接使用 {table}",
     dbType: "类型", nullable: "可为空",
     // Phase 2 - templates
@@ -128,6 +129,13 @@ export default {
     entryStep2Hint: "先填好名称、数据源、目标表和写入策略；映射、规则等更多配置可在抽屉里继续完善。",
     entryOpenConfig: "打开完整配置",
     entryEnterEditor: "进入编辑器",
+    targetTableSearch: "搜索目标表…",
+    constantField: "字段名",
+  },
+  richtext: {
+    bold: "加粗", italic: "斜体", strike: "删除线", heading1: "一级标题", heading2: "二级标题",
+    bulletList: "无序列表", orderedList: "有序列表", link: "链接", linkPrompt: "输入链接地址",
+    clearFormatting: "清除格式",
   },
   strategy: { APPEND: "仅追加", UPSERT: "存在则更新", REPLACE_SCOPE: "按范围替换" },
   datasource: {

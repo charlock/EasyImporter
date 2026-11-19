@@ -120,6 +120,8 @@ export interface Template {
   description: string;
   current_version: number;
   is_archived: boolean;
+  has_sample: boolean;
+  sample_file_name: string | null;
   datasource_id: number | null;
   target_schema: string;
   target_table: string;
